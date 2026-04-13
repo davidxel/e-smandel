@@ -4,7 +4,11 @@ import {
   BOLOS_VIOLATION_SLUG,
   buildInitialAttendance,
   buildInitialClasses,
+  buildInitialCompetitions,
+  buildInitialCompetitionStatusHistory,
   buildInitialPointHistory,
+  buildInitialPointRedemptions,
+  buildInitialPointRedemptionRequests,
   buildInitialStudents,
   buildInitialUsers,
   buildInitialViolations,
@@ -17,7 +21,13 @@ import type {
   AttendanceStatus,
   AuthUser,
   ClassRoom,
+  CompetitionEntry,
+  CompetitionLevel,
+  CompetitionStatusHistory,
+  CompetitionStatus,
   PointHistory,
+  PointRedemption,
+  PointRedemptionRequest,
   Student,
   User,
   ViolationMaster,
@@ -30,6 +40,10 @@ export type DataState = {
   violations: ViolationMaster[]
   attendance: Attendance[]
   pointHistory: PointHistory[]
+  pointRedemptions: PointRedemption[]
+  pointRedemptionRequests: PointRedemptionRequest[]
+  competitions: CompetitionEntry[]
+  competitionStatusHistory: CompetitionStatusHistory[]
 }
 
 type DataActions = {
@@ -38,6 +52,12 @@ type DataActions = {
   findUserForLogin: (credential: string, password: string) => User | null
   getUserById: (id: string) => User | undefined
   updateUser: (id: string, patch: Partial<Omit<User, 'id' | 'password'>> & { password?: string }) => void
+  updateSensitiveUserByActor: (
+    actorId: string,
+    targetUserId: string,
+    patch: Pick<User, 'name' | 'nip' | 'nisn'>,
+  ) => { ok: boolean; message?: string }
+  setPiketSchedule: (userId: string, days: number[]) => void
   addStaffUser: (input: {
     name: string
     nip: string
@@ -60,6 +80,10 @@ type DataActions = {
     classId: string
     password: string
     totalPoints?: number
+    parentName?: string
+    parentPhone?: string
+    studentPhone?: string
+    gender?: 'L' | 'P'
   }) => { user: User; student: Student }
   updateStudent: (
     id: string,
@@ -68,6 +92,10 @@ type DataActions = {
         name?: string
         nisn?: string
         password?: string
+        parentName?: string
+        parentPhone?: string
+        studentPhone?: string
+        gender?: 'L' | 'P'
       }
     >,
   ) => void
@@ -93,6 +121,44 @@ type DataActions = {
     date: string,
     period: number,
   ) => Attendance | undefined
+  applyQuickViolation: (input: {
+    studentId: string
+    teacherId: string
+    violationId: string
+  }) => { ok: boolean; message?: string }
+  redeemStudentPoints: (input: {
+    studentId: string
+    teacherId: string
+    activityType: string
+    pointsRestored: number
+    proofPhotoDataUrl: string
+  }) => { ok: boolean; message?: string }
+  createRedemptionRequest: (input: {
+    studentUserId: string
+    activityType: string
+    requestedPoints: number
+    supervisorTeacherId: string
+  }) => { ok: boolean; message?: string }
+  approveRedemptionRequest: (input: {
+    requestId: string
+    approverId: string
+    approvedPoints: number
+    proofPhotoDataUrl: string
+  }) => { ok: boolean; message?: string }
+  addAchievementPoints: (input: {
+    studentId: string
+    teacherId: string
+    points: number
+    reason: string
+  }) => { ok: boolean; message?: string }
+  upsertCompetition: (input: {
+    studentId: string
+    competitionName: string
+    level: CompetitionLevel
+    mentorTeacherId: string
+    status: CompetitionStatus
+  }) => { ok: boolean; message?: string }
+  deleteCompetition: (id: string) => void
 }
 
 function buildFreshState(): DataState {
@@ -104,6 +170,10 @@ function buildFreshState(): DataState {
     violations: buildInitialViolations(),
     attendance: buildInitialAttendance(),
     pointHistory: buildInitialPointHistory(),
+    pointRedemptions: buildInitialPointRedemptions(),
+    pointRedemptionRequests: buildInitialPointRedemptionRequests(),
+    competitions: buildInitialCompetitions(),
+    competitionStatusHistory: buildInitialCompetitionStatusHistory(),
   }
 }
 
@@ -143,6 +213,45 @@ export const useDataStore = create<DataState & DataActions>()(
           ),
         }))
       },
+      updateSensitiveUserByActor: (actorId, targetUserId, patch) => {
+        const actor = get().getUserById(actorId)
+        const target = get().getUserById(targetUserId)
+        if (!actor || !target) return { ok: false, message: 'Pengguna tidak ditemukan.' }
+        if (actor.id !== target.id && actor.role !== 'super_admin') {
+          return { ok: false, message: 'Tidak diizinkan mengubah data sensitif user lain.' }
+        }
+        const nextName = patch.name.trim()
+        if (!nextName) return { ok: false, message: 'Nama wajib diisi.' }
+        if (target.role === 'siswa') {
+          const nextNisn = (patch.nisn ?? '').trim()
+          if (!nextNisn) return { ok: false, message: 'NISN wajib diisi.' }
+          const duplicate = get().users.find((u) => u.id !== target.id && u.nisn?.trim() === nextNisn)
+          if (duplicate) return { ok: false, message: 'NISN sudah digunakan.' }
+          get().updateUser(target.id, { name: nextName, nisn: nextNisn })
+          return { ok: true }
+        }
+        const nextNip = (patch.nip ?? '').trim()
+        if (!nextNip) return { ok: false, message: 'NIP wajib diisi.' }
+        const duplicate = get().users.find((u) => u.id !== target.id && u.nip?.trim() === nextNip)
+        if (duplicate) return { ok: false, message: 'NIP sudah digunakan.' }
+        get().updateUser(target.id, { name: nextName, nip: nextNip })
+        return { ok: true }
+      },
+      setPiketSchedule: (userId, days) => {
+        const normalized = Array.from(new Set(days.filter((d) => d >= 0 && d <= 6))).sort()
+        const today = new Date().getDay()
+        set((s) => ({
+          users: s.users.map((u) =>
+            u.id === userId
+              ? {
+                  ...u,
+                  piketScheduleDays: normalized,
+                  isPiket: normalized.includes(today),
+                }
+              : u,
+          ),
+        }))
+      },
 
       addStaffUser: ({ name, nip, role, jabatan, password }) => {
         if (role === 'siswa' || role === 'super_admin') {
@@ -156,6 +265,8 @@ export const useDataStore = create<DataState & DataActions>()(
           nip: nip.trim(),
           nisn: null,
           jabatan: jabatan.trim() || null,
+          isPiket: role === 'guru_piket',
+          piketScheduleDays: role === 'guru_piket' ? [1, 2, 3, 4, 5] : [],
           profilePhotoDataUrl: null,
         }
         set((s) => ({ users: [...s.users, user] }))
@@ -200,7 +311,17 @@ export const useDataStore = create<DataState & DataActions>()(
 
       getStudentById: (id) => get().students.find((st) => st.id === id),
 
-      addStudent: ({ name, nisn, classId, password, totalPoints = 100 }) => {
+      addStudent: ({
+        name,
+        nisn,
+        classId,
+        password,
+        totalPoints = 0,
+        parentName = '',
+        parentPhone = '',
+        studentPhone = '',
+        gender = 'L',
+      }) => {
         const n = nisn.trim()
         if (get().users.some((u) => u.nisn?.trim() === n)) {
           throw new Error('NISN sudah terdaftar.')
@@ -213,6 +334,8 @@ export const useDataStore = create<DataState & DataActions>()(
           nip: null,
           nisn: n,
           jabatan: null,
+          isPiket: false,
+          piketScheduleDays: [],
           profilePhotoDataUrl: null,
         }
         const student: Student = {
@@ -221,6 +344,10 @@ export const useDataStore = create<DataState & DataActions>()(
           classId,
           totalPoints,
           statusPrestasi: 'normal',
+          parentName: parentName.trim(),
+          parentPhone: parentPhone.trim(),
+          studentPhone: studentPhone.trim(),
+          gender,
         }
         set((s) => ({
           users: [...s.users, user],
@@ -243,6 +370,18 @@ export const useDataStore = create<DataState & DataActions>()(
                   }),
                   ...(patch.statusPrestasi !== undefined && {
                     statusPrestasi: patch.statusPrestasi,
+                  }),
+                  ...(patch.parentName !== undefined && {
+                    parentName: patch.parentName.trim(),
+                  }),
+                  ...(patch.parentPhone !== undefined && {
+                    parentPhone: patch.parentPhone.trim(),
+                  }),
+                  ...(patch.studentPhone !== undefined && {
+                    studentPhone: patch.studentPhone.trim(),
+                  }),
+                  ...(patch.gender !== undefined && {
+                    gender: patch.gender,
                   }),
                 }
               : x,
@@ -306,7 +445,11 @@ export const useDataStore = create<DataState & DataActions>()(
               nisn,
               classId: cls.id,
               password: 'siswa123',
-              totalPoints: 100,
+              totalPoints: 0,
+              parentName: '',
+              parentPhone: '',
+              studentPhone: '',
+              gender: 'L',
             })
             created += 1
           } catch (e) {
@@ -410,7 +553,7 @@ export const useDataStore = create<DataState & DataActions>()(
 
             students = s.students.map((x) =>
               x.id === studentId
-                ? { ...x, totalPoints: Math.max(0, x.totalPoints - pts) }
+                ? { ...x, totalPoints: x.totalPoints - pts }
                 : x,
             )
             const ph: PointHistory = {
@@ -428,10 +571,323 @@ export const useDataStore = create<DataState & DataActions>()(
           return { attendance, students, pointHistory }
         })
       },
+      applyQuickViolation: ({ studentId, teacherId, violationId }) => {
+        const st = get().getStudentById(studentId)
+        const viol = get().violations.find((v) => v.id === violationId)
+        if (!st || !viol) return { ok: false, message: 'Data siswa/pelanggaran tidak ditemukan.' }
+        const pts = Math.max(1, viol.points)
+        set((s) => {
+          const students = s.students.map((x) =>
+            x.id === studentId
+              ? { ...x, totalPoints: x.totalPoints - pts }
+              : x,
+          )
+          const ph: PointHistory = {
+            id: newId(),
+            studentId,
+            changerId: teacherId,
+            pointsChanged: -pts,
+            reason: `Piket cepat: ${viol.name} (−${pts} poin)`,
+            timestamp: new Date().toISOString(),
+            source: 'pelanggaran',
+          }
+          return { students, pointHistory: [ph, ...s.pointHistory] }
+        })
+        return { ok: true }
+      },
+      redeemStudentPoints: ({
+        studentId,
+        teacherId,
+        activityType,
+        pointsRestored,
+        proofPhotoDataUrl,
+      }) => {
+        const st = get().getStudentById(studentId)
+        if (!st) return { ok: false, message: 'Siswa tidak ditemukan.' }
+        const cleanActivity = activityType.trim()
+        if (!cleanActivity) return { ok: false, message: 'Jenis kegiatan wajib diisi.' }
+        if (!proofPhotoDataUrl.startsWith('data:image/')) {
+          return { ok: false, message: 'Bukti foto tidak valid.' }
+        }
+        if (st.totalPoints >= 0) {
+          return {
+            ok: false,
+            message:
+              'Penebusan tidak bisa diproses karena siswa tidak memiliki poin pelanggaran (nilai belum minus).',
+          }
+        }
+        const add = Math.max(1, Math.min(100, Math.floor(pointsRestored)))
+        const applied = Math.min(add, Math.abs(st.totalPoints))
+        if (applied <= 0) {
+          return { ok: false, message: 'Tidak ada poin minus yang bisa ditebus.' }
+        }
+        set((s) => {
+          const students = s.students.map((x) =>
+            x.id === studentId ? { ...x, totalPoints: x.totalPoints + applied } : x,
+          )
+          const redemption: PointRedemption = {
+            id: newId(),
+            studentId,
+            teacherId,
+            activityType: cleanActivity,
+            pointsRestored: applied,
+            proofPhotoDataUrl,
+            timestamp: new Date().toISOString(),
+          }
+          const ph: PointHistory = {
+            id: newId(),
+            studentId,
+            changerId: teacherId,
+            pointsChanged: applied,
+            reason: `Penebusan Poin: ${cleanActivity} (+${applied} poin)`,
+            timestamp: redemption.timestamp,
+            source: 'penebusan',
+          }
+          return {
+            students,
+            pointRedemptions: [redemption, ...s.pointRedemptions],
+            pointHistory: [ph, ...s.pointHistory],
+          }
+        })
+        return { ok: true, message: `Poin siswa bertambah ${applied}.` }
+      },
+      createRedemptionRequest: ({
+        studentUserId,
+        activityType,
+        requestedPoints,
+        supervisorTeacherId,
+      }) => {
+        const st = get().getStudentByUserId(studentUserId)
+        if (!st) return { ok: false, message: 'Akun siswa tidak valid.' }
+        const teacher = get().getUserById(supervisorTeacherId)
+        if (!teacher || teacher.role === 'siswa') {
+          return { ok: false, message: 'Guru pengawas tidak valid.' }
+        }
+        const cleanActivity = activityType.trim()
+        if (!cleanActivity) return { ok: false, message: 'Kegiatan wajib diisi.' }
+        if (st.totalPoints >= 0) {
+          return {
+            ok: false,
+            message:
+              'Pengajuan penebusan tidak tersedia karena poin Anda tidak sedang minus.',
+          }
+        }
+        const points = Math.max(1, Math.min(100, Math.floor(requestedPoints)))
+        const appliedRequested = Math.min(points, Math.abs(st.totalPoints))
+        const req: PointRedemptionRequest = {
+          id: newId(),
+          studentId: st.id,
+          supervisorTeacherId,
+          activityType: cleanActivity,
+          requestedPoints: appliedRequested,
+          status: 'pending',
+          requestedAt: new Date().toISOString(),
+          approvedAt: null,
+          approvedBy: null,
+          proofPhotoDataUrl: null,
+        }
+        set((s) => ({
+          pointRedemptionRequests: [req, ...s.pointRedemptionRequests],
+        }))
+        return { ok: true }
+      },
+      approveRedemptionRequest: ({
+        requestId,
+        approverId,
+        approvedPoints,
+        proofPhotoDataUrl,
+      }) => {
+        const req = get().pointRedemptionRequests.find((x) => x.id === requestId)
+        if (!req) return { ok: false, message: 'Pengajuan tidak ditemukan.' }
+        if (req.status !== 'pending') {
+          return { ok: false, message: 'Pengajuan sudah diproses.' }
+        }
+        if (!proofPhotoDataUrl.startsWith('data:image/')) {
+          return { ok: false, message: 'Bukti foto tidak valid.' }
+        }
+        const approver = get().getUserById(approverId)
+        if (!approver) return { ok: false, message: 'Akun approver tidak ditemukan.' }
+        const canApprove =
+          approver.role === 'super_admin' || req.supervisorTeacherId === approverId
+        if (!canApprove) {
+          return { ok: false, message: 'Hanya guru pengawas terpilih yang dapat approve.' }
+        }
+        const st = get().getStudentById(req.studentId)
+        if (!st) return { ok: false, message: 'Data siswa tidak ditemukan.' }
+        if (st.totalPoints >= 0) {
+          return { ok: false, message: 'Siswa tidak memiliki poin minus untuk ditebus.' }
+        }
+        const add = Math.max(1, Math.min(100, Math.floor(approvedPoints)))
+        const applied = Math.min(add, Math.abs(st.totalPoints))
+        if (applied <= 0) {
+          return { ok: false, message: 'Tidak ada poin minus yang bisa ditebus.' }
+        }
+        const now = new Date().toISOString()
+        set((s) => {
+          const students = s.students.map((x) =>
+            x.id === st.id ? { ...x, totalPoints: x.totalPoints + applied } : x,
+          )
+          const pointRedemptionRequests = s.pointRedemptionRequests.map((x) =>
+            x.id === requestId
+              ? {
+                  ...x,
+                  status: 'approved' as const,
+                  approvedAt: now,
+                  approvedBy: approverId,
+                  proofPhotoDataUrl,
+                }
+              : x,
+          )
+          const redemption: PointRedemption = {
+            id: newId(),
+            studentId: st.id,
+            teacherId: approverId,
+            activityType: req.activityType,
+            pointsRestored: applied,
+            proofPhotoDataUrl,
+            timestamp: now,
+          }
+          const ph: PointHistory = {
+            id: newId(),
+            studentId: st.id,
+            changerId: approverId,
+            pointsChanged: applied,
+            reason: `Penebusan Poin (approve): ${req.activityType} (+${applied} poin)`,
+            timestamp: now,
+            source: 'penebusan',
+          }
+          return {
+            students,
+            pointRedemptionRequests,
+            pointRedemptions: [redemption, ...s.pointRedemptions],
+            pointHistory: [ph, ...s.pointHistory],
+          }
+        })
+        return { ok: true, message: `Pengajuan disetujui. Poin +${applied}.` }
+      },
+      addAchievementPoints: ({ studentId, teacherId, points, reason }) => {
+        const st = get().getStudentById(studentId)
+        if (!st) return { ok: false, message: 'Siswa tidak ditemukan.' }
+        const add = Math.max(1, Math.floor(points))
+        const cleanReason = reason.trim() || 'Prestasi siswa'
+        set((s) => {
+          const students = s.students.map((x) =>
+            x.id === studentId ? { ...x, totalPoints: x.totalPoints + add } : x,
+          )
+          const ph: PointHistory = {
+            id: newId(),
+            studentId,
+            changerId: teacherId,
+            pointsChanged: add,
+            reason: `Prestasi: ${cleanReason} (+${add} poin)`,
+            timestamp: new Date().toISOString(),
+            source: 'prestasi',
+          }
+          return { students, pointHistory: [ph, ...s.pointHistory] }
+        })
+        return { ok: true }
+      },
+      upsertCompetition: ({
+        studentId,
+        competitionName,
+        level,
+        mentorTeacherId,
+        status,
+      }) => {
+        const st = get().getStudentById(studentId)
+        if (!st) return { ok: false, message: 'Siswa tidak ditemukan.' }
+        const teacher = get().getUserById(mentorTeacherId)
+        if (!teacher || teacher.role === 'siswa') {
+          return { ok: false, message: 'Guru pembimbing tidak valid.' }
+        }
+        const name = competitionName.trim()
+        if (!name) return { ok: false, message: 'Nama lomba wajib diisi.' }
+        const entry: CompetitionEntry = {
+          id: `${studentId}::${name.toLowerCase()}`,
+          studentId,
+          competitionName: name,
+          level,
+          mentorTeacherId,
+          status,
+          updatedAt: new Date().toISOString(),
+        }
+        set((s) => {
+          const prevEntry = s.competitions.find((x) => x.id === entry.id)
+          const competitions = [
+            entry,
+            ...s.competitions.filter((x) => x.id !== entry.id),
+          ]
+          const mappedStatus =
+            (status === 'karantina_lomba'
+              ? 'karantina_lomba'
+              : status === 'sedang_lomba'
+                ? 'lomba'
+                : 'normal') as Student['statusPrestasi']
+          const students = s.students.map((x) =>
+            x.id === studentId ? { ...x, statusPrestasi: mappedStatus } : x,
+          )
+          const statusChanged = !prevEntry || prevEntry.status !== status
+          const competitionStatusHistory = statusChanged
+            ? [
+                {
+                  id: newId(),
+                  studentId,
+                  competitionId: entry.id,
+                  fromStatus: prevEntry?.status ?? null,
+                  toStatus: status,
+                  changedByTeacherId: mentorTeacherId,
+                  changedAt: entry.updatedAt,
+                  note: prevEntry
+                    ? `Status diubah dari ${prevEntry.status} ke ${status}`
+                    : `Status awal ${status}`,
+                },
+                ...s.competitionStatusHistory,
+              ]
+            : s.competitionStatusHistory
+          return { competitions, students, competitionStatusHistory }
+        })
+        return { ok: true }
+      },
+      deleteCompetition: (id) => {
+        const target = get().competitions.find((x) => x.id === id)
+        set((s) => ({
+          competitions: s.competitions.filter((x) => x.id !== id),
+          students: target
+            ? s.students.map((st) =>
+                st.id === target.studentId ? { ...st, statusPrestasi: 'normal' } : st,
+              )
+            : s.students,
+        }))
+      },
     }),
     {
       name: 'e-smandel-data',
-      version: 1,
+      version: 5,
+      merge: (persisted, current) => {
+        const merged = {
+          ...(current as DataState & DataActions),
+          ...((persisted as Partial<DataState>) ?? {}),
+        } as DataState & DataActions
+        return {
+          ...merged,
+          users: (merged.users ?? []).map((u) => ({
+            ...u,
+            isPiket: !!u.isPiket,
+            piketScheduleDays: u.piketScheduleDays ?? [],
+          })),
+          pointRedemptions: merged.pointRedemptions ?? [],
+          pointRedemptionRequests: merged.pointRedemptionRequests ?? [],
+          competitions: merged.competitions ?? [],
+          competitionStatusHistory: merged.competitionStatusHistory ?? [],
+          students: (merged.students ?? []).map((st) => ({
+            ...st,
+            parentName: st.parentName ?? '',
+            parentPhone: st.parentPhone ?? '',
+            studentPhone: st.studentPhone ?? '',
+            gender: st.gender ?? 'L',
+          })),
+        }
+      },
       partialize: (s) => ({
         users: s.users,
         students: s.students,
@@ -439,6 +895,10 @@ export const useDataStore = create<DataState & DataActions>()(
         violations: s.violations,
         attendance: s.attendance,
         pointHistory: s.pointHistory,
+        pointRedemptions: s.pointRedemptions,
+        pointRedemptionRequests: s.pointRedemptionRequests,
+        competitions: s.competitions,
+        competitionStatusHistory: s.competitionStatusHistory,
       }),
     },
     ),

@@ -2,7 +2,11 @@ import type { UserRole } from '../types/roles'
 import type {
   Attendance,
   ClassRoom,
+  CompetitionEntry,
+  CompetitionStatusHistory,
   PointHistory,
+  PointRedemption,
+  PointRedemptionRequest,
   Student,
   User,
   ViolationMaster,
@@ -70,6 +74,8 @@ export function buildInitialUsers(): User[] {
       nip: 'SA000001',
       nisn: null,
       jabatan: 'Pengelola Sistem',
+      isPiket: false,
+      piketScheduleDays: [],
       profilePhotoDataUrl: null,
     },
     {
@@ -80,6 +86,8 @@ export function buildInitialUsers(): User[] {
       nip: '196001011980031001',
       nisn: null,
       jabatan: 'Kepala Sekolah',
+      isPiket: false,
+      piketScheduleDays: [],
       profilePhotoDataUrl: null,
     },
     {
@@ -90,6 +98,8 @@ export function buildInitialUsers(): User[] {
       nip: '198502152010012002',
       nisn: null,
       jabatan: 'Kepala Urusan Kesiswaan',
+      isPiket: false,
+      piketScheduleDays: [],
       profilePhotoDataUrl: null,
     },
     {
@@ -100,6 +110,8 @@ export function buildInitialUsers(): User[] {
       nip: '198803102012031003',
       nisn: null,
       jabatan: 'Guru BK',
+      isPiket: false,
+      piketScheduleDays: [],
       profilePhotoDataUrl: null,
     },
     {
@@ -110,6 +122,8 @@ export function buildInitialUsers(): User[] {
       nip: '199001202014042004',
       nisn: null,
       jabatan: 'Guru Piket',
+      isPiket: true,
+      piketScheduleDays: [1, 2, 3, 4, 5],
       profilePhotoDataUrl: null,
     },
     {
@@ -120,6 +134,8 @@ export function buildInitialUsers(): User[] {
       nip: '199204052016052005',
       nisn: null,
       jabatan: 'Guru Mapel Matematika',
+      isPiket: false,
+      piketScheduleDays: [2],
       profilePhotoDataUrl: null,
     },
     {
@@ -130,6 +146,8 @@ export function buildInitialUsers(): User[] {
       nip: '198712012011062006',
       nisn: null,
       jabatan: 'Guru Pembimbing OSIS',
+      isPiket: false,
+      piketScheduleDays: [],
       profilePhotoDataUrl: null,
     },
     {
@@ -140,6 +158,8 @@ export function buildInitialUsers(): User[] {
       nip: null,
       nisn: '0012345678',
       jabatan: null,
+      isPiket: false,
+      piketScheduleDays: [],
       profilePhotoDataUrl: null,
     },
   ]
@@ -151,22 +171,34 @@ export function buildInitialStudents(): Student[] {
       id: 's1',
       userId: 'u8',
       classId: 'cls-x-ipa-1',
-      totalPoints: 85,
+      totalPoints: 0,
       statusPrestasi: 'normal',
+      parentName: 'Bapak Pratama',
+      parentPhone: '081234567890',
+      studentPhone: '081298765432',
+      gender: 'L',
     },
     {
       id: 's2',
       userId: 'u-dummy-1',
       classId: 'cls-x-ipa-1',
-      totalPoints: 72,
+      totalPoints: 0,
       statusPrestasi: 'lomba',
+      parentName: 'Ibu Santoso',
+      parentPhone: '081355500001',
+      studentPhone: '081355500002',
+      gender: 'L',
     },
     {
       id: 's3',
       userId: 'u-dummy-2',
       classId: 'cls-xi-ips-2',
-      totalPoints: 90,
+      totalPoints: 0,
       statusPrestasi: 'normal',
+      parentName: 'Ibu Dewi',
+      parentPhone: '081366600001',
+      studentPhone: '081366600002',
+      gender: 'P',
     },
   ]
 }
@@ -182,6 +214,8 @@ export function buildPlaceholderStudentUsers(): User[] {
       nip: null,
       nisn: '0087654321',
       jabatan: null,
+      isPiket: false,
+      piketScheduleDays: [],
       profilePhotoDataUrl: null,
     },
     {
@@ -192,6 +226,8 @@ export function buildPlaceholderStudentUsers(): User[] {
       nip: null,
       nisn: '0099887766',
       jabatan: null,
+      isPiket: false,
+      piketScheduleDays: [],
       profilePhotoDataUrl: null,
     },
   ]
@@ -202,5 +238,21 @@ export function buildInitialAttendance(): Attendance[] {
 }
 
 export function buildInitialPointHistory(): PointHistory[] {
+  return []
+}
+
+export function buildInitialPointRedemptions(): PointRedemption[] {
+  return []
+}
+
+export function buildInitialPointRedemptionRequests(): PointRedemptionRequest[] {
+  return []
+}
+
+export function buildInitialCompetitions(): CompetitionEntry[] {
+  return []
+}
+
+export function buildInitialCompetitionStatusHistory(): CompetitionStatusHistory[] {
   return []
 }

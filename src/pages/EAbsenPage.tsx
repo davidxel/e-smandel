@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { CalendarDays, Lock } from 'lucide-react'
 import { PaginatedTable } from '../components/ui/PaginatedTable'
+import { buildSmsUrl, buildWhatsAppUrl } from '../lib/userDisplay'
 import { useAuthStore } from '../store/authStore'
 import { useDataStore } from '../store/dataStore'
 import { useUiStore } from '../store/uiStore'
@@ -28,6 +29,10 @@ export function EAbsenPage() {
   const [date, setDate] = useState(today)
   const [period, setPeriod] = useState(1)
   const [classId, setClassId] = useState('')
+  const [notifPayload, setNotifPayload] = useState<{
+    phone: string
+    message: string
+  } | null>(null)
 
   useEffect(() => {
     if (!user || !classId) return
@@ -92,6 +97,11 @@ export function EAbsenPage() {
       status: finalStatus,
     })
     if (!r.locked && finalStatus === 'Bolos' && prev !== 'Bolos') {
+      const stUser = getUserById(r.student.userId)
+      setNotifPayload({
+        phone: r.student.parentPhone,
+        message: `Notifikasi e-Smandel: ${stUser?.name ?? 'Siswa'} tercatat Bolos pada ${date} jam ke-${period}. Poin pelanggaran dikurangi otomatis.`,
+      })
       showToast(
         `Bolos: poin siswa ${r.studentName} dikurangi sesuai master pelanggaran.`,
         'info',
@@ -135,6 +145,47 @@ export function EAbsenPage() {
           (audit di Riwayat Poin).
         </p>
       </div>
+      {notifPayload ? (
+        <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4">
+          <p className="text-sm font-semibold text-indigo-900">
+            Validasi Notifikasi Orang Tua
+          </p>
+          <p className="mt-1 text-xs text-indigo-800">
+            Pilih kanal pengiriman notifikasi: {notifPayload.phone || 'nomor belum diisi'}.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                const wa = buildWhatsAppUrl(notifPayload.phone, notifPayload.message)
+                if (wa) window.open(wa, '_blank', 'noopener,noreferrer')
+                else showToast('Nomor orang tua belum valid untuk WhatsApp.', 'error')
+              }}
+              className="rounded-lg bg-emerald-700 px-3 py-2 text-xs font-semibold text-white"
+            >
+              Validasi via WhatsApp
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const sms = buildSmsUrl(notifPayload.phone, notifPayload.message)
+                if (sms) window.open(sms, '_blank', 'noopener,noreferrer')
+                else showToast('Nomor orang tua belum valid untuk SMS.', 'error')
+              }}
+              className="rounded-lg bg-sky-700 px-3 py-2 text-xs font-semibold text-white"
+            >
+              Validasi via SMS
+            </button>
+            <button
+              type="button"
+              onClick={() => setNotifPayload(null)}
+              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700"
+            >
+              Tutup
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <div className="grid gap-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm md:grid-cols-3">
         <div>

@@ -5,13 +5,17 @@ import { canAccessRoute, type AppRouteKey } from './lib/permissions'
 import { useAuthStore } from './store/authStore'
 import { AdminGuruPage } from './pages/admin/AdminGuruPage'
 import { AdminKelasPage } from './pages/admin/AdminKelasPage'
+import { AdminJadwalPiketPage } from './pages/admin/AdminJadwalPiketPage'
 import { AdminPelanggaranPage } from './pages/admin/AdminPelanggaranPage'
 import { AdminSiswaPage } from './pages/admin/AdminSiswaPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { EAbsenPage } from './pages/EAbsenPage'
 import { LoginPage } from './pages/LoginPage'
-import { ModulePlaceholderPage } from './pages/ModulePlaceholderPage'
+import { ModePiketPage } from './pages/ModePiketPage'
+import { PenebusanPoinPage } from './pages/PenebusanPoinPage'
 import { ProfilePage } from './pages/ProfilePage'
+import { ModulePlaceholderPage } from './pages/ModulePlaceholderPage'
+import { KegiatanLombaPage } from './pages/KegiatanLombaPage'
 import { ToastHost } from './components/ui/ToastHost'
 
 function ProtectedLayout() {
@@ -29,7 +33,7 @@ function RequireModule({
 }) {
   const user = useAuthStore((s) => s.user)
   const loc = useLocation()
-  const allowed = user ? canAccessRoute(user.role, routeKey) : false
+  const allowed = user ? canAccessRoute(user, routeKey) : false
   // #region agent log
   fetch('http://127.0.0.1:7923/ingest/5ca3b835-f44b-49b1-84e7-96e4128da844', {
     method: 'POST',
@@ -74,15 +78,16 @@ export default function App() {
             }
           />
           <Route
-            path="epoin"
+            path="e-poin"
             element={
-              <RequireModule routeKey="epoin">
-                <ModulePlaceholderPage
-                  title="e-Poin"
-                  description="Input pelanggaran (Ringan, Sedang, Berat), riwayat pengurangan dan penambahan poin reward — untuk Guru Piket dan BK."
-                />
+              <RequireModule routeKey="mode_piket">
+                <ModePiketPage />
               </RequireModule>
             }
+          />
+          <Route
+            path="mode-piket"
+            element={<Navigate to="/app/e-poin" replace />}
           />
           <Route
             path="e-absen"
@@ -96,10 +101,7 @@ export default function App() {
             path="eprestasi"
             element={
               <RequireModule routeKey="eprestasi">
-                <ModulePlaceholderPage
-                  title="e-Prestasi"
-                  description="Atur status Lomba atau Karantina Lomba untuk siswa oleh Guru Pembimbing."
-                />
+                <KegiatanLombaPage />
               </RequireModule>
             }
           />
@@ -111,6 +113,14 @@ export default function App() {
                   title="Laporan"
                   description="Ekspor PDF Surat Peringatan (BK) dan Rekap Absen (Kepsek) akan tersedia di sini."
                 />
+              </RequireModule>
+            }
+          />
+          <Route
+            path="penebusan-poin"
+            element={
+              <RequireModule routeKey="penebusan_poin">
+                <PenebusanPoinPage />
               </RequireModule>
             }
           />
@@ -135,6 +145,14 @@ export default function App() {
             element={
               <RequireModule routeKey="admin_pelanggaran">
                 <AdminPelanggaranPage />
+              </RequireModule>
+            }
+          />
+          <Route
+            path="admin/jadwal-piket"
+            element={
+              <RequireModule routeKey="admin_jadwal_piket">
+                <AdminJadwalPiketPage />
               </RequireModule>
             }
           />

@@ -24,7 +24,7 @@ export function AppLayout() {
     <div className="flex min-h-screen bg-slate-100">
       {/* Desktop sidebar */}
       <div className="hidden md:flex">
-        <Sidebar role={user.role} />
+        <Sidebar user={user} />
       </div>
 
       {/* Mobile drawer */}
@@ -41,7 +41,7 @@ export function AppLayout() {
           className={`absolute left-0 top-0 h-full w-[min(85vw,18rem)] transform shadow-xl transition-transform ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}
         >
           <Sidebar
-            role={user.role}
+            user={user}
             onNavigate={() => setMobileOpen(false)}
             className="h-full"
           />

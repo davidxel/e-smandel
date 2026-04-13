@@ -1,4 +1,5 @@
 import type { UserRole } from '../types/roles'
+import type { AuthUser } from '../types/schema'
 
 export type AppRouteKey =
   | 'dashboard'
@@ -11,6 +12,9 @@ export type AppRouteKey =
   | 'admin_guru'
   | 'admin_pelanggaran'
   | 'admin_kelas'
+  | 'admin_jadwal_piket'
+  | 'mode_piket'
+  | 'penebusan_poin'
 
 const ROLE_ROUTE_MATRIX: Record<UserRole, AppRouteKey[]> = {
   super_admin: [
@@ -24,6 +28,7 @@ const ROLE_ROUTE_MATRIX: Record<UserRole, AppRouteKey[]> = {
     'admin_guru',
     'admin_pelanggaran',
     'admin_kelas',
+    'admin_jadwal_piket',
   ],
   kepsek: ['dashboard', 'profil', 'laporan'],
   kesiswaan: [
@@ -45,9 +50,19 @@ const ROLE_ROUTE_MATRIX: Record<UserRole, AppRouteKey[]> = {
   siswa: ['dashboard', 'profil'],
 }
 
-export function canAccessRoute(role: UserRole, key: AppRouteKey): boolean {
+export function isPiketActive(user: AuthUser): boolean {
+  const today = new Date().getDay()
+  const hasScheduleToday = (user.piketScheduleDays ?? []).includes(today)
+  const onFlag = !!user.isPiket
+  if (user.role === 'guru_piket') return true
+  if (user.role === 'guru_mapel') return onFlag || hasScheduleToday
+  return onFlag
+}
+
+export function canAccessRoute(user: AuthUser, key: AppRouteKey): boolean {
   // #region agent log
-  const matrixRow = ROLE_ROUTE_MATRIX[role]
+  const matrixRow = ROLE_ROUTE_MATRIX[user.role]
+  const piketActive = isPiketActive(user)
   fetch('http://127.0.0.1:7923/ingest/5ca3b835-f44b-49b1-84e7-96e4128da844', {
     method: 'POST',
     headers: {
@@ -60,7 +75,8 @@ export function canAccessRoute(role: UserRole, key: AppRouteKey): boolean {
       location: 'permissions.ts:canAccessRoute',
       message: 'canAccessRoute pre-check',
       data: {
-        role,
+        role: user.role,
+        piketActive,
         key,
         hasRow: Array.isArray(matrixRow),
       },
@@ -68,7 +84,16 @@ export function canAccessRoute(role: UserRole, key: AppRouteKey): boolean {
     }),
   }).catch(() => {})
   // #endregion
-  return ROLE_ROUTE_MATRIX[role].includes(key)
+  if (user.role === 'super_admin') return true
+  if (user.role === 'bk' && (key === 'mode_piket' || key === 'penebusan_poin')) {
+    return true
+  }
+  if (user.role === 'siswa' && key === 'penebusan_poin') return true
+  if (key === 'mode_piket') {
+    return piketActive || ROLE_ROUTE_MATRIX[user.role].includes('epoin')
+  }
+  if (key === 'penebusan_poin') return piketActive
+  return ROLE_ROUTE_MATRIX[user.role].includes(key)
 }
 
 export function isAdminRouteKey(key: AppRouteKey): boolean {
@@ -76,6 +101,7 @@ export function isAdminRouteKey(key: AppRouteKey): boolean {
     key === 'admin_siswa' ||
     key === 'admin_guru' ||
     key === 'admin_pelanggaran' ||
-    key === 'admin_kelas'
+    key === 'admin_kelas' ||
+    key === 'admin_jadwal_piket'
   )
 }

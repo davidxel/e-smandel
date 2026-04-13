@@ -71,9 +71,14 @@ export function ProfilePage() {
   const user = useAuthStore((s) => s.user)
   const refreshSessionUser = useAuthStore((s) => s.refreshSessionUser)
   const updateUser = useDataStore((s) => s.updateUser)
+  const updateSensitiveUserByActor = useDataStore((s) => s.updateSensitiveUserByActor)
   const getStudentByUserId = useDataStore((s) => s.getStudentByUserId)
   const getClassById = useDataStore((s) => s.getClassById)
   const showToast = useUiStore((s) => s.showToast)
+  const [editName, setEditName] = React.useState('')
+  const [editNip, setEditNip] = React.useState('')
+  const [editNisn, setEditNisn] = React.useState('')
+  const [saving, setSaving] = React.useState(false)
 
   // #region agent log
   useEffect(() => {
@@ -105,6 +110,24 @@ export function ProfilePage() {
 
   if (!user) return null
 
+  const handleSaveIdentity = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setSaving(true)
+    const res = updateSensitiveUserByActor(user.id, user.id, {
+      name: editName || user.name,
+      nip: editNip || user.nip,
+      nisn: editNisn || user.nisn,
+    })
+    if (!res.ok) {
+      showToast(res.message ?? 'Gagal menyimpan profil.', 'error')
+      setSaving(false)
+      return
+    }
+    refreshSessionUser()
+    showToast('Profil berhasil diperbarui.', 'success')
+    setSaving(false)
+  }
+
   const handlePhoto = (dataUrl: string) => {
     updateUser(user.id, { profilePhotoDataUrl: dataUrl })
     refreshSessionUser()
@@ -118,6 +141,12 @@ export function ProfilePage() {
 
   const idLabel = user.role === 'siswa' ? 'NISN' : 'NIP'
   const idValue = user.role === 'siswa' ? user.nisn ?? '—' : user.nip ?? '—'
+
+  React.useEffect(() => {
+    setEditName(user.name)
+    setEditNip(user.nip ?? '')
+    setEditNisn(user.nisn ?? '')
+  }, [user])
 
   return (
     <div className="mx-auto max-w-3xl space-y-8">
@@ -163,6 +192,26 @@ export function ProfilePage() {
                   <dt className="w-14 shrink-0 text-white/60">{idLabel}</dt>
                   <dd className="font-mono tabular-nums">{idValue}</dd>
                 </div>
+                {user.role === 'siswa' ? (
+                  <>
+                    <div className="flex gap-2">
+                      <dt className="w-14 shrink-0 text-white/60">Gender</dt>
+                      <dd>{student?.gender === 'P' ? 'Perempuan' : 'Laki-laki'}</dd>
+                    </div>
+                    <div className="flex gap-2">
+                      <dt className="w-14 shrink-0 text-white/60">HP</dt>
+                      <dd className="font-mono tabular-nums">{student?.studentPhone || '—'}</dd>
+                    </div>
+                    <div className="flex gap-2">
+                      <dt className="w-14 shrink-0 text-white/60">Ortu</dt>
+                      <dd>{student?.parentName || '—'}</dd>
+                    </div>
+                    <div className="flex gap-2">
+                      <dt className="w-14 shrink-0 text-white/60">WA Ortu</dt>
+                      <dd className="font-mono tabular-nums">{student?.parentPhone || '—'}</dd>
+                    </div>
+                  </>
+                ) : null}
               </dl>
             </div>
           </div>
@@ -196,6 +245,47 @@ export function ProfilePage() {
           />
         </div>
       </div>
+
+      <form
+        onSubmit={handleSaveIdentity}
+        className="grid gap-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
+      >
+        <h3 className="text-sm font-semibold text-slate-800">Edit identitas profil</h3>
+        <div>
+          <label className="text-xs font-medium text-slate-600">Nama</label>
+          <input
+            value={editName}
+            onChange={(e) => setEditName(e.target.value)}
+            className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+          />
+        </div>
+        {user.role === 'siswa' ? (
+          <div>
+            <label className="text-xs font-medium text-slate-600">NISN</label>
+            <input
+              value={editNisn}
+              onChange={(e) => setEditNisn(e.target.value)}
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            />
+          </div>
+        ) : (
+          <div>
+            <label className="text-xs font-medium text-slate-600">NIP</label>
+            <input
+              value={editNip}
+              onChange={(e) => setEditNip(e.target.value)}
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            />
+          </div>
+        )}
+        <button
+          type="submit"
+          disabled={saving}
+          className="w-fit rounded-lg bg-brand-navy px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+        >
+          {saving ? 'Menyimpan...' : 'Simpan Perubahan'}
+        </button>
+      </form>
     </div>
   )
 }

@@ -25,11 +25,19 @@ export function AdminSiswaPage() {
   const [nisn, setNisn] = useState('')
   const [classId, setClassId] = useState('')
   const [pass, setPass] = useState('siswa123')
+  const [parentName, setParentName] = useState('')
+  const [parentPhone, setParentPhone] = useState('')
+  const [studentPhone, setStudentPhone] = useState('')
+  const [gender, setGender] = useState<'L' | 'P'>('L')
   const [editing, setEditing] = useState<Student | null>(null)
   const [eNama, setENama] = useState('')
   const [eNisn, setENisn] = useState('')
   const [eClassId, setEClassId] = useState('')
-  const [ePoin, setEPoin] = useState(100)
+  const [ePoin, setEPoin] = useState(0)
+  const [eParentName, setEParentName] = useState('')
+  const [eParentPhone, setEParentPhone] = useState('')
+  const [eStudentPhone, setEStudentPhone] = useState('')
+  const [eGender, setEGender] = useState<'L' | 'P'>('L')
 
   const rows: Row[] = students
     .map((student) => {
@@ -44,6 +52,10 @@ export function AdminSiswaPage() {
     setNisn('')
     setClassId('')
     setPass('siswa123')
+    setParentName('')
+    setParentPhone('')
+    setStudentPhone('')
+    setGender('L')
   }
 
   const handleAdd = (e: React.FormEvent) => {
@@ -58,6 +70,10 @@ export function AdminSiswaPage() {
         nisn,
         classId,
         password: pass || 'siswa123',
+        parentName,
+        parentPhone,
+        studentPhone,
+        gender,
       })
       showToast('Siswa ditambahkan.', 'success')
       resetAdd()
@@ -72,6 +88,10 @@ export function AdminSiswaPage() {
     setENisn(r.nisn)
     setEClassId(r.student.classId)
     setEPoin(r.student.totalPoints)
+    setEParentName(r.student.parentName)
+    setEParentPhone(r.student.parentPhone)
+    setEStudentPhone(r.student.studentPhone)
+    setEGender(r.student.gender)
   }
 
   const saveEdit = (e: React.FormEvent) => {
@@ -82,6 +102,10 @@ export function AdminSiswaPage() {
       nisn: eNisn,
       classId: eClassId,
       totalPoints: ePoin,
+      parentName: eParentName,
+      parentPhone: eParentPhone,
+      studentPhone: eStudentPhone,
+      gender: eGender,
     })
     showToast('Data siswa diperbarui.', 'success')
     setEditing(null)
@@ -117,7 +141,8 @@ export function AdminSiswaPage() {
           Data siswa
         </h1>
         <p className="mt-1 text-sm text-slate-600">
-          CRUD siswa, impor Excel/CSV (kolom: NISN, Nama, Kelas).
+          CRUD siswa, impor Excel/CSV (kolom: NISN, Nama, Kelas). Nilai awal poin
+          siswa dimulai dari 0.
         </p>
       </div>
 
@@ -138,9 +163,9 @@ export function AdminSiswaPage() {
 
       <form
         onSubmit={handleAdd}
-        className="grid gap-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:grid-cols-2 lg:grid-cols-3"
+        className="grid gap-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:grid-cols-2 lg:grid-cols-4"
       >
-        <h2 className="sm:col-span-2 lg:col-span-3 flex items-center gap-2 text-sm font-semibold text-slate-800">
+        <h2 className="sm:col-span-2 lg:col-span-4 flex items-center gap-2 text-sm font-semibold text-slate-800">
           <Plus className="h-4 w-4 text-brand-navy" />
           Tambah siswa
         </h2>
@@ -179,6 +204,17 @@ export function AdminSiswaPage() {
           </select>
         </div>
         <div>
+          <label className="text-xs font-medium text-slate-600">Jenis Kelamin</label>
+          <select
+            value={gender}
+            onChange={(e) => setGender(e.target.value as 'L' | 'P')}
+            className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+          >
+            <option value="L">Laki-laki</option>
+            <option value="P">Perempuan</option>
+          </select>
+        </div>
+        <div>
           <label className="text-xs font-medium text-slate-600">
             Kata sandi awal
           </label>
@@ -195,6 +231,30 @@ export function AdminSiswaPage() {
           >
             Simpan
           </button>
+        </div>
+        <div>
+          <label className="text-xs font-medium text-slate-600">Nama Orang Tua</label>
+          <input
+            value={parentName}
+            onChange={(e) => setParentName(e.target.value)}
+            className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+          />
+        </div>
+        <div>
+          <label className="text-xs font-medium text-slate-600">No. WA/Telp Orang Tua</label>
+          <input
+            value={parentPhone}
+            onChange={(e) => setParentPhone(e.target.value)}
+            className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+          />
+        </div>
+        <div>
+          <label className="text-xs font-medium text-slate-600">No. HP Siswa</label>
+          <input
+            value={studentPhone}
+            onChange={(e) => setStudentPhone(e.target.value)}
+            className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+          />
         </div>
       </form>
 
@@ -241,9 +301,43 @@ export function AdminSiswaPage() {
               <label className="text-xs font-medium">Total poin</label>
               <input
                 type="number"
-                min={0}
                 value={ePoin}
                 onChange={(e) => setEPoin(Number(e.target.value))}
+                className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium">Jenis Kelamin</label>
+              <select
+                value={eGender}
+                onChange={(e) => setEGender(e.target.value as 'L' | 'P')}
+                className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+              >
+                <option value="L">Laki-laki</option>
+                <option value="P">Perempuan</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-medium">Nama Orang Tua</label>
+              <input
+                value={eParentName}
+                onChange={(e) => setEParentName(e.target.value)}
+                className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium">No. WA/Telp Orang Tua</label>
+              <input
+                value={eParentPhone}
+                onChange={(e) => setEParentPhone(e.target.value)}
+                className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium">No. HP Siswa</label>
+              <input
+                value={eStudentPhone}
+                onChange={(e) => setEStudentPhone(e.target.value)}
                 className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
               />
             </div>
@@ -286,6 +380,8 @@ export function AdminSiswaPage() {
                     <th className="px-3 py-2">Nama</th>
                     <th className="px-3 py-2">NISN</th>
                     <th className="px-3 py-2">Kelas</th>
+                    <th className="px-3 py-2">Gender</th>
+                    <th className="px-3 py-2">Orang Tua</th>
                     <th className="px-3 py-2">Poin</th>
                     <th className="px-3 py-2 text-right">Aksi</th>
                   </tr>
@@ -300,6 +396,13 @@ export function AdminSiswaPage() {
                       <td className="px-3 py-2 font-mono text-xs">{r.nisn}</td>
                       <td className="px-3 py-2">
                         {getClassById(r.student.classId)?.name ?? '—'}
+                      </td>
+                      <td className="px-3 py-2">{r.student.gender}</td>
+                      <td className="px-3 py-2 text-xs">
+                        <div>{r.student.parentName || '—'}</div>
+                        <div className="font-mono text-[11px] text-slate-500">
+                          {r.student.parentPhone || '—'}
+                        </div>
                       </td>
                       <td className="px-3 py-2 tabular-nums">
                         {r.student.totalPoints}

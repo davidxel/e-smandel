@@ -1,22 +1,22 @@
 import { NavLink } from 'react-router-dom'
 import { ADMIN_SECTION_LABEL, NAV_ITEMS } from '../../lib/nav'
 import { canAccessRoute } from '../../lib/permissions'
-import type { UserRole } from '../../types/roles'
+import type { AuthUser } from '../../types/schema'
 
 type SidebarProps = {
-  role: UserRole
+  user: AuthUser
   onNavigate?: () => void
   className?: string
 }
 
-export function Sidebar({ role, onNavigate, className = '' }: SidebarProps) {
+export function Sidebar({ user, onNavigate, className = '' }: SidebarProps) {
   const mainItems = NAV_ITEMS.filter(
     (item) =>
-      item.section === 'main' && canAccessRoute(role, item.key),
+      item.section === 'main' && canAccessRoute(user, item.key),
   )
   const adminItems = NAV_ITEMS.filter(
     (item) =>
-      item.section === 'admin' && canAccessRoute(role, item.key),
+      item.section === 'admin' && canAccessRoute(user, item.key),
   )
 
   const linkClass = ({ isActive }: { isActive: boolean }) =>

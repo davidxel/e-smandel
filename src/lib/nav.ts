@@ -1,6 +1,7 @@
 import {
   Award,
   BarChart3,
+  CalendarDays,
   ClipboardList,
   FileText,
   GraduationCap,
@@ -38,8 +39,8 @@ export const NAV_ITEMS: NavItem[] = [
     section: 'main',
   },
   {
-    key: 'epoin',
-    path: '/app/epoin',
+    key: 'mode_piket',
+    path: '/app/e-poin',
     label: 'e-Poin',
     icon: ClipboardList,
     section: 'main',
@@ -54,7 +55,7 @@ export const NAV_ITEMS: NavItem[] = [
   {
     key: 'eprestasi',
     path: '/app/eprestasi',
-    label: 'e-Prestasi',
+    label: 'Kegiatan Lomba',
     icon: Award,
     section: 'main',
   },
@@ -63,6 +64,13 @@ export const NAV_ITEMS: NavItem[] = [
     path: '/app/laporan',
     label: 'Laporan',
     icon: FileText,
+    section: 'main',
+  },
+  {
+    key: 'penebusan_poin',
+    path: '/app/penebusan-poin',
+    label: 'Penebusan Poin',
+    icon: Award,
     section: 'main',
   },
   {
@@ -84,6 +92,13 @@ export const NAV_ITEMS: NavItem[] = [
     path: '/app/admin/pelanggaran',
     label: 'Master Pelanggaran',
     icon: ShieldAlert,
+    section: 'admin',
+  },
+  {
+    key: 'admin_jadwal_piket',
+    path: '/app/admin/jadwal-piket',
+    label: 'Jadwal Piket Guru',
+    icon: CalendarDays,
     section: 'admin',
   },
   {

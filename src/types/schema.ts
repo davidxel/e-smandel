@@ -12,6 +12,10 @@ export type User = {
   nisn: string | null
   /** Jabatan (staff) atau boleh kosong untuk siswa */
   jabatan: string | null
+  /** Flag dinamis: user sedang bertugas piket hari ini */
+  isPiket: boolean
+  /** Jadwal piket berbasis hari: 0=Mingu ... 6=Sabtu */
+  piketScheduleDays: number[]
   profilePhotoDataUrl: string | null
 }
 
@@ -26,6 +30,10 @@ export type Student = {
   classId: string
   totalPoints: number
   statusPrestasi: PrestasiStatus
+  parentName: string
+  parentPhone: string
+  studentPhone: string
+  gender: 'L' | 'P'
 }
 
 export type ClassRoom = {
@@ -63,7 +71,68 @@ export type PointHistory = {
   pointsChanged: number
   reason: string
   timestamp: string
-  source: 'absensi' | 'pelanggaran' | 'reward' | 'admin' | 'import'
+  source:
+    | 'absensi'
+    | 'pelanggaran'
+    | 'prestasi'
+    | 'reward'
+    | 'admin'
+    | 'import'
+    | 'penebusan'
+}
+
+export type PointRedemption = {
+  id: string
+  studentId: string
+  teacherId: string
+  activityType: string
+  pointsRestored: number
+  proofPhotoDataUrl: string
+  timestamp: string
+}
+
+export type PointRedemptionRequestStatus = 'pending' | 'approved' | 'rejected'
+
+export type PointRedemptionRequest = {
+  id: string
+  studentId: string
+  supervisorTeacherId: string
+  activityType: string
+  requestedPoints: number
+  status: PointRedemptionRequestStatus
+  requestedAt: string
+  approvedAt: string | null
+  approvedBy: string | null
+  proofPhotoDataUrl: string | null
+}
+
+export type CompetitionLevel =
+  | 'tingkat_sekolah'
+  | 'tingkat_kota'
+  | 'tingkat_provinsi_nasional'
+  | 'tingkat_internasional'
+
+export type CompetitionStatus = 'karantina_lomba' | 'sedang_lomba' | 'selesai'
+
+export type CompetitionEntry = {
+  id: string
+  studentId: string
+  competitionName: string
+  level: CompetitionLevel
+  mentorTeacherId: string
+  status: CompetitionStatus
+  updatedAt: string
+}
+
+export type CompetitionStatusHistory = {
+  id: string
+  studentId: string
+  competitionId: string
+  fromStatus: CompetitionStatus | null
+  toStatus: CompetitionStatus
+  changedByTeacherId: string
+  changedAt: string
+  note: string
 }
 
 export type DispensationType = 'sakit' | 'izin' | 'lomba' | 'lainnya'
