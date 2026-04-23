@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import { Pencil, Plus, Trash2, Upload } from 'lucide-react'
+import { apiSetPassword } from '../../lib/api'
 import { FileUploader } from '../../components/ui/FileUploader'
 import { PaginatedTable } from '../../components/ui/PaginatedTable'
 import { parseStudentSpreadsheetDataUrl } from '../../lib/excelStudents'
+import { flushWorkspacePushNowAsync } from '../../lib/workspaceSync'
 import { useAuthStore } from '../../store/authStore'
 import { useDataStore } from '../../store/dataStore'
 import { useUiStore } from '../../store/uiStore'
@@ -58,24 +60,31 @@ export function AdminSiswaPage() {
     setGender('L')
   }
 
-  const handleAdd = (e: React.FormEvent) => {
+  const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!classId) {
       showToast('Pilih kelas.', 'error')
       return
     }
     try {
-      addStudent({
+      const plain = pass || 'siswa123'
+      const { user } = addStudent({
         name: nama,
         nisn,
         classId,
-        password: pass || 'siswa123',
+        password: plain,
         parentName,
         parentPhone,
         studentPhone,
         gender,
       })
-      showToast('Siswa ditambahkan.', 'success')
+      await flushWorkspacePushNowAsync()
+      const syncPw = await apiSetPassword(user.id, plain)
+      if (!syncPw.ok) {
+        showToast(syncPw.message ?? 'Siswa ditambahkan lokal; gagal menyimpan hash kata sandi ke server.', 'error')
+      } else {
+        showToast('Siswa ditambahkan.', 'success')
+      }
       resetAdd()
     } catch (err) {
       showToast(String(err), 'error')
@@ -111,7 +120,7 @@ export function AdminSiswaPage() {
     setEditing(null)
   }
 
-  const handleImport = (dataUrl: string) => {
+  const handleImport = async (dataUrl: string) => {
     const { rows: parsed, error } = parseStudentSpreadsheetDataUrl(dataUrl)
     if (error) {
       showToast(error, 'error')
@@ -121,8 +130,22 @@ export function AdminSiswaPage() {
       showToast('Tidak ada baris data.', 'error')
       return
     }
-    const { created, errors } = importStudentsFromRows(parsed)
-    if (created) showToast(`${created} siswa diimpor.`, 'success')
+    const { created, errors, createdUserIds } = importStudentsFromRows(parsed)
+    if (createdUserIds.length > 0) {
+      await flushWorkspacePushNowAsync()
+    }
+    const syncResults = await Promise.all(
+      createdUserIds.map((id) => apiSetPassword(id, 'siswa123')),
+    )
+    const syncFailed = syncResults.filter((r) => !r.ok).length
+    if (created) {
+      showToast(
+        syncFailed
+          ? `${created} siswa diimpor; ${syncFailed} gagal sinkron kata sandi ke server.`
+          : `${created} siswa diimpor.`,
+        syncFailed ? 'error' : 'success',
+      )
+    }
     if (errors.length) {
       showToast(
         `${errors.length} baris bermasalah. Lihat konsol untuk detail.`,

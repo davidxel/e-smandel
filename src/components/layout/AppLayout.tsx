@@ -22,6 +22,12 @@ export function AppLayout() {
 
   return (
     <div className="flex min-h-screen bg-slate-100">
+      <a
+        href="#main-content"
+        className="sr-only left-4 top-4 z-[60] rounded-lg bg-brand-navy px-3 py-2 text-sm font-medium text-white shadow focus:not-sr-only focus:absolute focus:outline-none focus:ring-2 focus:ring-brand-gold"
+      >
+        Lompat ke isi utama
+      </a>
       {/* Desktop sidebar */}
       <div className="hidden md:flex">
         <Sidebar user={user} />
@@ -54,7 +60,7 @@ export function AppLayout() {
           onMenuClick={() => setMobileOpen(true)}
           onLogout={handleLogout}
         />
-        <main className="flex-1 overflow-auto p-4 md:p-6">
+        <main id="main-content" tabIndex={-1} className="flex-1 overflow-auto p-4 md:p-6 outline-none">
           <Outlet />
         </main>
       </div>

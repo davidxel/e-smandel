@@ -1,6 +1,6 @@
 import { NavLink } from 'react-router-dom'
 import { ADMIN_SECTION_LABEL, NAV_ITEMS } from '../../lib/nav'
-import { canAccessRoute } from '../../lib/permissions'
+import { canAccessRoute, isPiketActive } from '../../lib/permissions'
 import type { AuthUser } from '../../types/schema'
 
 type SidebarProps = {
@@ -27,12 +27,17 @@ export function Sidebar({ user, onNavigate, className = '' }: SidebarProps) {
         : 'text-white/80 hover:bg-white/10 hover:text-white',
     ].join(' ')
 
+  const resolveLabel = (key: string, label: string) => {
+    if (key === 'mode_piket' && isPiketActive(user)) return 'e-Piket'
+    return label
+  }
+
   return (
     <aside
       className={`flex w-64 shrink-0 flex-col border-r border-white/10 bg-brand-navy-dark text-white ${className}`}
     >
       <nav className="flex flex-1 flex-col gap-1 overflow-y-auto p-3">
-        {mainItems.map(({ path, label, icon: Icon }) => (
+        {mainItems.map(({ key, path, label, icon: Icon }) => (
           <NavLink
             key={path}
             to={path}
@@ -41,7 +46,7 @@ export function Sidebar({ user, onNavigate, className = '' }: SidebarProps) {
             className={linkClass}
           >
             <Icon className="h-5 w-5 shrink-0 text-brand-gold-light opacity-90" />
-            {label}
+            {resolveLabel(key, label)}
           </NavLink>
         ))}
 

@@ -20,16 +20,12 @@ export function LoginPage() {
 
   if (user) return <Navigate to="/app" replace />
 
-  const demoAccounts = allUsers.filter(
-    (u) =>
-      (u.password === 'demo123' || u.password === 'siswa123') &&
-      !u.id.startsWith('u-dummy'),
-  )
+  const demoAccounts = allUsers.filter((u) => !u.id.startsWith('u-dummy'))
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
-    const res = login(credential, password)
+    const res = await login(credential, password)
     setLoading(false)
     if (res.ok) {
       showToast('Selamat datang di e-Smandel.', 'success')
@@ -122,35 +118,43 @@ export function LoginPage() {
             </button>
           </form>
 
-          <div className="mt-6 border-t border-slate-200 pt-5">
-            <p className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-              <Sparkles className="h-3.5 w-3.5 text-brand-gold" />
-              Demo cepat (banyak akun: demo123; siswa impor: siswa123)
-            </p>
-            <div className="max-h-48 space-y-2 overflow-y-auto pr-1">
-              {demoAccounts.map((u) => (
-                <button
-                  key={u.id}
-                  type="button"
-                  onClick={() =>
-                    quickDemo(getCredentialForLogin(u), u.password)
-                  }
-                  className="flex w-full items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-left text-sm transition hover:border-brand-navy/30 hover:bg-white"
-                >
-                  <span className="truncate font-medium text-slate-800">
-                    {u.name}
-                  </span>
-                  <span className="shrink-0 rounded-full bg-brand-navy/10 px-2 py-0.5 text-[10px] font-medium text-brand-navy">
-                    {ROLE_LABELS[u.role]}
-                  </span>
-                </button>
-              ))}
+          {import.meta.env.DEV ? (
+            <div className="mt-6 border-t border-slate-200 pt-5">
+              <p className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <Sparkles className="h-3.5 w-3.5 text-brand-gold" />
+                Demo cepat (staff: demo123; siswa: siswa123)
+              </p>
+              <div className="max-h-48 space-y-2 overflow-y-auto pr-1">
+                {demoAccounts.map((u) => {
+                  const defaultPwd = u.role === 'siswa' ? 'siswa123' : 'demo123'
+                  return (
+                    <button
+                      key={u.id}
+                      type="button"
+                      onClick={() => quickDemo(getCredentialForLogin(u), defaultPwd)}
+                      className="flex w-full items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-left text-sm transition hover:border-brand-navy/30 hover:bg-white"
+                    >
+                      <span className="truncate font-medium text-slate-800">
+                        {u.name}
+                      </span>
+                      <span className="shrink-0 rounded-full bg-brand-navy/10 px-2 py-0.5 text-[10px] font-medium text-brand-navy">
+                        {ROLE_LABELS[u.role]}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
             </div>
-          </div>
+          ) : null}
         </div>
 
         <p className="mt-6 text-center text-xs text-white/60">
           © {new Date().getFullYear()} SMAN 8 Mandau — Lingkungan percobaan
+        </p>
+        <p className="mx-auto mt-3 max-w-md text-center text-xs leading-relaxed text-white/65">
+          Masuk memerlukan API + MySQL (lihat <span className="text-brand-gold-light/90">env.example</span>, lalu{' '}
+          <span className="text-brand-gold-light/90">npm run dev</span>). Data NISN/NIP dan kontak diproses sesuai
+          kebijakan institusi.
         </p>
       </div>
     </div>

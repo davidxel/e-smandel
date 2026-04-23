@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { Pencil, Plus, Trash2 } from 'lucide-react'
+import { apiSetPassword } from '../../lib/api'
+import { flushWorkspacePushNowAsync } from '../../lib/workspaceSync'
 import { PaginatedTable } from '../../components/ui/PaginatedTable'
 import { GURU_STAFF_ROLES } from '../../data/initialSeed'
 import { useAuthStore } from '../../store/authStore'
@@ -33,17 +35,24 @@ export function AdminGuruPage() {
 
   const staffRows = users.filter((u) => ROLE_OPTIONS.includes(u.role))
 
-  const handleAdd = (e: React.FormEvent) => {
+  const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault()
     try {
-      addStaffUser({
+      const plain = pass || 'demo123'
+      const newUser = addStaffUser({
         name: nama,
         nip,
         role,
         jabatan,
-        password: pass || 'demo123',
+        password: plain,
       })
-      showToast('Akun guru/staff ditambahkan.', 'success')
+      await flushWorkspacePushNowAsync()
+      const syncPw = await apiSetPassword(newUser.id, plain)
+      if (!syncPw.ok) {
+        showToast(syncPw.message ?? 'Akun ditambahkan lokal; gagal menyimpan hash kata sandi ke server.', 'error')
+      } else {
+        showToast('Akun guru/staff ditambahkan.', 'success')
+      }
       setNama('')
       setNip('')
       setJabatan('')
@@ -62,7 +71,7 @@ export function AdminGuruPage() {
     setEPass('')
   }
 
-  const saveEdit = (e: React.FormEvent) => {
+  const saveEdit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!editing) return
     updateUser(editing.id, {
@@ -70,8 +79,14 @@ export function AdminGuruPage() {
       nip: eNip.trim(),
       role: eRole,
       jabatan: eJabatan.trim() || null,
-      ...(ePass.trim() ? { password: ePass.trim() } : {}),
     })
+    if (ePass.trim()) {
+      const syncPw = await apiSetPassword(editing.id, ePass.trim())
+      if (!syncPw.ok) {
+        showToast(syncPw.message ?? 'Gagal memperbarui kata sandi di server.', 'error')
+        return
+      }
+    }
     showToast('Data pengguna diperbarui.', 'success')
     setEditing(null)
   }
@@ -83,7 +98,7 @@ export function AdminGuruPage() {
           Akun guru &amp; staff
         </h1>
         <p className="mt-1 text-sm text-slate-600">
-          Kelola Kepsek, BK, Guru Piket, Guru Mapel, dan Guru Pembimbing.
+          Kelola Kepsek, Kurikulum, BK, Guru Piket, dan Guru.
         </p>
       </div>
 
@@ -132,7 +147,7 @@ export function AdminGuruPage() {
           <input
             value={jabatan}
             onChange={(e) => setJabatan(e.target.value)}
-            placeholder="Contoh: Guru Mapel IPA"
+            placeholder="Contoh: Guru IPA"
             className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
           />
         </div>

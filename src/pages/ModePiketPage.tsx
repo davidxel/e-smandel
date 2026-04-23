@@ -1,6 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { FileUploader } from '../components/ui/FileUploader'
+import { pullWorkspaceFromServer } from '../lib/pullWorkspace'
 import { buildSmsUrl, buildWhatsAppUrl } from '../lib/userDisplay'
+import { flushWorkspacePushNow } from '../lib/workspaceSync'
 import { useAuthStore } from '../store/authStore'
 import { useDataStore } from '../store/dataStore'
 import { useUiStore } from '../store/uiStore'
@@ -10,6 +12,7 @@ const QUICK_ACTIVITY = ['Kerja Bakti', 'Literasi Perpustakaan', 'Bersih Musholla
 export function ModePiketPage() {
   const user = useAuthStore((s) => s.user)
   const showToast = useUiStore((s) => s.showToast)
+  const users = useDataStore((s) => s.users)
   const students = useDataStore((s) => s.students)
   const classes = useDataStore((s) => s.classes)
   const violations = useDataStore((s) => s.violations)
@@ -18,6 +21,12 @@ export function ModePiketPage() {
   const applyQuickViolation = useDataStore((s) => s.applyQuickViolation)
   const redeemStudentPoints = useDataStore((s) => s.redeemStudentPoints)
   const addAchievementPoints = useDataStore((s) => s.addAchievementPoints)
+  const addLateArrival = useDataStore((s) => s.addLateArrival)
+  const lateArrivals = useDataStore((s) => s.lateArrivals)
+  const addGuestVisit = useDataStore((s) => s.addGuestVisit)
+  const guestVisits = useDataStore((s) => s.guestVisits)
+  const addKbmLog = useDataStore((s) => s.addKbmLog)
+  const kbmLogs = useDataStore((s) => s.kbmLogs)
   const [studentViolation, setStudentViolation] = useState('')
   const [violationId, setViolationId] = useState('')
   const [studentRedeem, setStudentRedeem] = useState('')
@@ -27,6 +36,16 @@ export function ModePiketPage() {
   const [studentPrestasi, setStudentPrestasi] = useState('')
   const [prestasiPoints, setPrestasiPoints] = useState(5)
   const [prestasiReason, setPrestasiReason] = useState('')
+  const [lateStudentId, setLateStudentId] = useState('')
+  const [lateReason, setLateReason] = useState('')
+  const [lateFollowUpViolationId, setLateFollowUpViolationId] = useState('')
+  const [guestName, setGuestName] = useState('')
+  const [guestPosition, setGuestPosition] = useState('')
+  const [guestPurpose, setGuestPurpose] = useState('')
+  const [kbmPeriod, setKbmPeriod] = useState(1)
+  const [kbmTeacherId, setKbmTeacherId] = useState('')
+  const [kbmClassId, setKbmClassId] = useState('')
+  const [kbmNote, setKbmNote] = useState('')
   const [notifPayload, setNotifPayload] = useState<{
     phone: string
     message: string
@@ -34,18 +53,70 @@ export function ModePiketPage() {
   } | null>(null)
   const [date] = useState(new Date().toISOString().slice(0, 10))
 
+  useEffect(() => {
+    void pullWorkspaceFromServer()
+  }, [])
+
+  const getGrade = (className: string): 'X' | 'XI' | 'XII' | null => {
+    const n = className.trim().toUpperCase()
+    if (n.startsWith('XII')) return 'XII'
+    if (n.startsWith('XI')) return 'XI'
+    if (n.startsWith('X')) return 'X'
+    return null
+  }
+
   const rows = useMemo(
     () =>
       students.map((st) => ({
         id: st.id,
         className: classes.find((c) => c.id === st.classId)?.name ?? '—',
         name: getUserById(st.userId)?.name ?? '—',
+        nisn: getUserById(st.userId)?.nisn ?? '—',
       })),
     [students, classes, getUserById],
   )
   const terlambat = violations.find((v) => v.slug === 'terlambat')
   const todaysAttendance = attendance.filter((a) => a.date === date)
   const todaysNotPresent = todaysAttendance.filter((a) => a.status !== 'H')
+
+  const notPresentByStudent = useMemo(() => {
+    const map = new Map<
+      string,
+      { studentId: string; name: string; nisn: string; className: string; grade: 'X' | 'XI' | 'XII' | null; statuses: Set<string> }
+    >()
+    for (const a of todaysNotPresent) {
+      const st = students.find((s) => s.id === a.studentId)
+      if (!st) continue
+      const u = getUserById(st.userId)
+      const className = classes.find((c) => c.id === st.classId)?.name ?? '—'
+      const grade = getGrade(className)
+      const key = st.id
+      const ex = map.get(key)
+      if (ex) {
+        ex.statuses.add(`${a.status} (jam ${a.period})`)
+      } else {
+        map.set(key, {
+          studentId: st.id,
+          name: u?.name ?? '—',
+          nisn: u?.nisn ?? '—',
+          className,
+          grade,
+          statuses: new Set([`${a.status} (jam ${a.period})`]),
+        })
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => a.className.localeCompare(b.className) || a.name.localeCompare(b.name))
+  }, [todaysNotPresent, students, classes, getUserById])
+
+  const notPresentByGrade = useMemo(() => {
+    const base = { X: [] as typeof notPresentByStudent, XI: [] as typeof notPresentByStudent, XII: [] as typeof notPresentByStudent }
+    for (const item of notPresentByStudent) {
+      if (item.grade === 'X') base.X.push(item)
+      else if (item.grade === 'XI') base.XI.push(item)
+      else if (item.grade === 'XII') base.XII.push(item)
+    }
+    return base
+  }, [notPresentByStudent])
 
   if (!user) return null
 
@@ -62,6 +133,7 @@ export function ModePiketPage() {
       violationId: selected,
     })
     if (res.ok) {
+      flushWorkspacePushNow()
       const st = students.find((s) => s.id === studentViolation)
       const stUser = st ? getUserById(st.userId) : undefined
       if (st && stUser) {
@@ -90,6 +162,7 @@ export function ModePiketPage() {
       proofPhotoDataUrl: proof,
     })
     if (res.ok) {
+      flushWorkspacePushNow()
       const st = students.find((s) => s.id === studentRedeem)
       const stUser = st ? getUserById(st.userId) : undefined
       if (st && stUser) {
@@ -116,6 +189,7 @@ export function ModePiketPage() {
       reason: prestasiReason || 'Pencapaian prestasi siswa',
     })
     if (res.ok) {
+      flushWorkspacePushNow()
       const st = students.find((s) => s.id === studentPrestasi)
       const stUser = st ? getUserById(st.userId) : undefined
       if (st && stUser) {
@@ -132,12 +206,77 @@ export function ModePiketPage() {
     )
   }
 
+  const submitLateArrival = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!lateStudentId) {
+      showToast('Pilih siswa (NISN sinkron dari akun siswa).', 'error')
+      return
+    }
+    const res = addLateArrival({
+      date,
+      studentId: lateStudentId,
+      reason: lateReason,
+      createdByUserId: user.id,
+      followUpViolationId: lateFollowUpViolationId || null,
+    })
+    showToast(
+      res.ok
+        ? 'Keterlambatan tercatat. Poin otomatis terpotong dan masuk ke e-Poin.'
+        : res.message ?? 'Gagal mencatat keterlambatan.',
+      res.ok ? 'success' : 'error',
+    )
+    if (res.ok) {
+      flushWorkspacePushNow()
+      setLateReason('')
+      setLateFollowUpViolationId('')
+      setLateStudentId('')
+    }
+  }
+
+  const submitGuestVisit = (e: React.FormEvent) => {
+    e.preventDefault()
+    const res = addGuestVisit({
+      date,
+      name: guestName,
+      position: guestPosition,
+      purpose: guestPurpose,
+      createdByUserId: user.id,
+    })
+    showToast(res.ok ? 'Tamu tersimpan.' : res.message ?? 'Gagal menyimpan tamu.', res.ok ? 'success' : 'error')
+    if (res.ok) {
+      flushWorkspacePushNow()
+      setGuestName('')
+      setGuestPosition('')
+      setGuestPurpose('')
+    }
+  }
+
+  const submitKbmLog = (e: React.FormEvent) => {
+    e.preventDefault()
+    const res = addKbmLog({
+      date,
+      period: kbmPeriod,
+      teacherId: kbmTeacherId,
+      classId: kbmClassId,
+      note: kbmNote,
+      createdByUserId: user.id,
+    })
+    showToast(res.ok ? 'Log KBM tersimpan.' : res.message ?? 'Gagal menyimpan log KBM.', res.ok ? 'success' : 'error')
+    if (res.ok) {
+      flushWorkspacePushNow()
+      setKbmNote('')
+      setKbmPeriod(1)
+      setKbmTeacherId('')
+      setKbmClassId('')
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-xl font-bold text-slate-800 md:text-2xl">e-Poin</h1>
+        <h1 className="text-xl font-bold text-slate-800 md:text-2xl">e-Piket</h1>
         <p className="mt-1 text-sm text-slate-600">
-          Pelanggaran cepat, konfirmasi penebusan poin, dan rekap absen global harian.
+          Piket: keterlambatan (sinkron e-Poin), pelanggaran cepat, daftar tamu, log KBM, dan rekap absen global harian.
         </p>
       </div>
       {notifPayload ? (
@@ -196,6 +335,242 @@ export function ModePiketPage() {
           </select>
         </div>
         <button className="w-fit rounded-lg bg-brand-navy px-4 py-2 text-sm font-semibold text-white" type="submit">Catat Pelanggaran</button>
+      </form>
+
+      <form onSubmit={submitLateArrival} className="grid gap-4 rounded-2xl border border-amber-200 bg-amber-50/40 p-6 shadow-sm">
+        <h2 className="text-sm font-semibold text-slate-800">Keterlambatan Siswa (sinkron e-Poin)</h2>
+        <p className="text-xs text-slate-600">
+          Data berisi hari/tanggal, NISN (sinkron dari akun siswa), nama, kelas, dan alasan. Saat disimpan, poin otomatis terpotong memakai master pelanggaran <span className="font-semibold">Terlambat</span>.
+        </p>
+        <div className="grid gap-4 md:grid-cols-2">
+          <select
+            value={lateStudentId}
+            onChange={(e) => setLateStudentId(e.target.value)}
+            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+          >
+            <option value="">— Pilih siswa (NISN · Nama · Kelas) —</option>
+            {rows
+              .slice()
+              .sort((a, b) => `${a.className}${a.name}`.localeCompare(`${b.className}${b.name}`))
+              .map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.nisn} · {r.name} ({r.className})
+                </option>
+              ))}
+          </select>
+          <select
+            value={lateFollowUpViolationId}
+            onChange={(e) => setLateFollowUpViolationId(e.target.value)}
+            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+          >
+            <option value="">— Tindak lanjut (opsional): kurangi poin lagi —</option>
+            {violations.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.name} (-{v.points})
+              </option>
+            ))}
+          </select>
+        </div>
+        <textarea
+          value={lateReason}
+          onChange={(e) => setLateReason(e.target.value)}
+          rows={3}
+          placeholder="Alasan/keterangan (contoh: terlambat karena hujan, ban bocor, dll.)"
+          className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+        />
+        <button className="w-fit rounded-lg bg-amber-700 px-4 py-2 text-sm font-semibold text-white" type="submit">
+          Simpan keterlambatan & potong poin
+        </button>
+
+        <div className="mt-2 overflow-x-auto rounded-xl border border-amber-200 bg-white">
+          <table className="w-full min-w-[820px] text-left text-sm">
+            <thead className="bg-amber-50 text-xs uppercase text-amber-900/70">
+              <tr>
+                <th className="px-3 py-2">Tanggal</th>
+                <th className="px-3 py-2">NISN</th>
+                <th className="px-3 py-2">Nama</th>
+                <th className="px-3 py-2">Kelas</th>
+                <th className="px-3 py-2">Keterangan</th>
+                <th className="px-3 py-2">Tindak lanjut</th>
+              </tr>
+            </thead>
+            <tbody>
+              {lateArrivals.filter((x) => x.date === date).length === 0 ? (
+                <tr>
+                  <td className="px-3 py-3 text-xs text-slate-500" colSpan={6}>
+                    Belum ada data keterlambatan untuk tanggal ini.
+                  </td>
+                </tr>
+              ) : (
+                lateArrivals
+                  .filter((x) => x.date === date)
+                  .map((x) => {
+                    const fu = x.followUpViolationId
+                      ? violations.find((v) => v.id === x.followUpViolationId)?.name ?? x.followUpViolationId
+                      : '—'
+                    return (
+                      <tr key={x.id} className="border-t border-amber-100">
+                        <td className="px-3 py-2 whitespace-nowrap">{x.date}</td>
+                        <td className="px-3 py-2 font-mono text-xs">{x.nisn}</td>
+                        <td className="px-3 py-2">{x.studentName}</td>
+                        <td className="px-3 py-2">{x.className}</td>
+                        <td className="px-3 py-2 text-xs text-slate-600">{x.reason}</td>
+                        <td className="px-3 py-2 text-xs">{fu}</td>
+                      </tr>
+                    )
+                  })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </form>
+
+      <form onSubmit={submitGuestVisit} className="grid gap-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <h2 className="text-sm font-semibold text-slate-800">Daftar Tamu Sekolah</h2>
+        <div className="grid gap-4 md:grid-cols-2">
+          <input
+            value={guestName}
+            onChange={(e) => setGuestName(e.target.value)}
+            placeholder="Nama tamu"
+            className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+          />
+          <input
+            value={guestPosition}
+            onChange={(e) => setGuestPosition(e.target.value)}
+            placeholder="Jabatan"
+            className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+          />
+        </div>
+        <input
+          value={guestPurpose}
+          onChange={(e) => setGuestPurpose(e.target.value)}
+          placeholder="Maksud kunjungan"
+          className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+        />
+        <button className="w-fit rounded-lg bg-brand-navy px-4 py-2 text-sm font-semibold text-white" type="submit">
+          Simpan tamu
+        </button>
+
+        <div className="mt-2 overflow-x-auto rounded-xl border border-slate-100">
+          <table className="w-full min-w-[760px] text-left text-sm">
+            <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+              <tr>
+                <th className="px-3 py-2">Tanggal</th>
+                <th className="px-3 py-2">Nama</th>
+                <th className="px-3 py-2">Jabatan</th>
+                <th className="px-3 py-2">Maksud</th>
+              </tr>
+            </thead>
+            <tbody>
+              {guestVisits.filter((x) => x.date === date).length === 0 ? (
+                <tr>
+                  <td className="px-3 py-3 text-xs text-slate-500" colSpan={4}>
+                    Belum ada data tamu untuk tanggal ini.
+                  </td>
+                </tr>
+              ) : (
+                guestVisits
+                  .filter((x) => x.date === date)
+                  .map((x) => (
+                    <tr key={x.id} className="border-t border-slate-100">
+                      <td className="px-3 py-2 whitespace-nowrap">{x.date}</td>
+                      <td className="px-3 py-2">{x.name}</td>
+                      <td className="px-3 py-2">{x.position}</td>
+                      <td className="px-3 py-2 text-xs text-slate-600">{x.purpose}</td>
+                    </tr>
+                  ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </form>
+
+      <form onSubmit={submitKbmLog} className="grid gap-4 rounded-2xl border border-sky-200 bg-sky-50/40 p-6 shadow-sm">
+        <h2 className="text-sm font-semibold text-slate-800">Guru Melaksanakan KBM di Kelas</h2>
+        <div className="grid gap-4 md:grid-cols-3">
+          <input
+            type="number"
+            min={1}
+            value={kbmPeriod}
+            onChange={(e) => setKbmPeriod(Number(e.target.value))}
+            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+            placeholder="Jam ke-"
+          />
+          <select
+            value={kbmTeacherId}
+            onChange={(e) => setKbmTeacherId(e.target.value)}
+            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+          >
+            <option value="">— Pilih guru —</option>
+            {users
+              .filter((u) => u.role === 'guru_mapel' || u.role === 'guru_piket')
+              .slice()
+              .sort((a, b) => a.name.localeCompare(b.name))
+              .map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.name}
+                </option>
+              ))}
+          </select>
+          <select
+            value={kbmClassId}
+            onChange={(e) => setKbmClassId(e.target.value)}
+            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+          >
+            <option value="">— Pilih kelas —</option>
+            {classes.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <input
+          value={kbmNote}
+          onChange={(e) => setKbmNote(e.target.value)}
+          placeholder="Catatan (opsional)"
+          className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+        />
+        <button className="w-fit rounded-lg bg-sky-700 px-4 py-2 text-sm font-semibold text-white" type="submit">
+          Simpan log KBM
+        </button>
+
+        <div className="mt-2 overflow-x-auto rounded-xl border border-sky-200 bg-white">
+          <table className="w-full min-w-[860px] text-left text-sm">
+            <thead className="bg-sky-50 text-xs uppercase text-sky-900/70">
+              <tr>
+                <th className="px-3 py-2">Tanggal</th>
+                <th className="px-3 py-2">Jam</th>
+                <th className="px-3 py-2">Guru</th>
+                <th className="px-3 py-2">Kelas</th>
+                <th className="px-3 py-2">Catatan</th>
+              </tr>
+            </thead>
+            <tbody>
+              {kbmLogs.filter((x) => x.date === date).length === 0 ? (
+                <tr>
+                  <td className="px-3 py-3 text-xs text-slate-500" colSpan={5}>
+                    Belum ada log KBM untuk tanggal ini.
+                  </td>
+                </tr>
+              ) : (
+                kbmLogs
+                  .filter((x) => x.date === date)
+                  .slice()
+                  .sort((a, b) => a.period - b.period)
+                  .map((x) => (
+                    <tr key={x.id} className="border-t border-sky-100">
+                      <td className="px-3 py-2 whitespace-nowrap">{x.date}</td>
+                      <td className="px-3 py-2">Jam {x.period}</td>
+                      <td className="px-3 py-2">{x.teacherName}</td>
+                      <td className="px-3 py-2">{x.className}</td>
+                      <td className="px-3 py-2 text-xs text-slate-600">{x.note || '—'}</td>
+                    </tr>
+                  ))
+              )}
+            </tbody>
+          </table>
+        </div>
       </form>
 
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -319,33 +694,42 @@ export function ModePiketPage() {
         <p className="mt-1 text-xs text-slate-500">
           Fokus penyisiran untuk status selain Hadir (H).
         </p>
+        <div className="mt-4 grid gap-4 md:grid-cols-3">
+          {(['X', 'XI', 'XII'] as const).map((g) => {
+            const list = notPresentByGrade[g]
+            return (
+              <div key={g} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-xs font-semibold text-slate-700">Tingkat {g}</p>
+                <p className="mt-1 text-2xl font-bold tabular-nums text-slate-900">{list.length}</p>
+                <p className="text-xs text-slate-600">siswa tidak hadir / bermasalah</p>
+              </div>
+            )
+          })}
+        </div>
         <div className="mt-3 overflow-x-auto">
-          <table className="w-full min-w-[700px] text-left text-sm">
+          <table className="w-full min-w-[860px] text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
               <tr>
+                <th className="px-3 py-2">Tingkat</th>
                 <th className="px-3 py-2">Kelas</th>
+                <th className="px-3 py-2">NISN</th>
                 <th className="px-3 py-2">Siswa</th>
-                <th className="px-3 py-2">Jam</th>
-                <th className="px-3 py-2">Status Lomba</th>
-                <th className="px-3 py-2">Status</th>
+                <th className="px-3 py-2">Keterangan</th>
               </tr>
             </thead>
             <tbody>
-              {todaysNotPresent.map((a) => {
-                const st = students.find((s) => s.id === a.studentId)
-                const name = st ? getUserById(st.userId)?.name : a.studentId
-                const className = st ? classes.find((c) => c.id === st.classId)?.name : '—'
-                return (
-                  <tr key={`np-${a.id}`} className="border-t border-slate-100">
-                    <td className="px-3 py-2">{className}</td>
-                    <td className="px-3 py-2">{name}</td>
-                    <td className="px-3 py-2">{a.period}</td>
-                    <td className="px-3 py-2 text-xs">{st?.statusPrestasi ?? 'normal'}</td>
-                    <td className="px-3 py-2 font-medium text-amber-700">{a.status}</td>
-                  </tr>
-                )
-              })}
-              {todaysNotPresent.length === 0 ? (
+              {notPresentByStudent.map((x) => (
+                <tr key={`np-${x.studentId}`} className="border-t border-slate-100">
+                  <td className="px-3 py-2 text-xs font-semibold text-slate-700">{x.grade ?? '—'}</td>
+                  <td className="px-3 py-2">{x.className}</td>
+                  <td className="px-3 py-2 font-mono text-xs">{x.nisn}</td>
+                  <td className="px-3 py-2">{x.name}</td>
+                  <td className="px-3 py-2 text-xs text-amber-800">
+                    {Array.from(x.statuses).join(', ')}
+                  </td>
+                </tr>
+              ))}
+              {notPresentByStudent.length === 0 ? (
                 <tr>
                   <td className="px-3 py-3 text-xs text-slate-500" colSpan={5}>
                     Belum ada catatan siswa tidak hadir untuk tanggal ini.

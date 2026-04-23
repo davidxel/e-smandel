@@ -16,6 +16,14 @@ export type User = {
   isPiket: boolean
   /** Jadwal piket berbasis hari: 0=Mingu ... 6=Sabtu */
   piketScheduleDays: number[]
+  /** Flag dinamis: guru ditugaskan sebagai pembimbing lomba */
+  isCompetitionMentor: boolean
+  /** Flag dinamis: guru menjadi wali kelas */
+  is_walikelas: boolean
+  /** Kelas yang diampu sebagai wali kelas */
+  managed_class_id: string | null
+  /** Flag dinamis: guru menjadi koordinator projek kokurikuler */
+  isKokurikulerCoordinator: boolean
   profilePhotoDataUrl: string | null
 }
 
@@ -120,6 +128,9 @@ export type CompetitionEntry = {
   competitionName: string
   level: CompetitionLevel
   mentorTeacherId: string
+  quarantineDate: string
+  competitionStartDate: string
+  competitionEndDate: string
   status: CompetitionStatus
   updatedAt: string
 }
@@ -135,6 +146,64 @@ export type CompetitionStatusHistory = {
   note: string
 }
 
+export type WaliKelasNote = {
+  id: string
+  teacherId: string
+  studentId: string
+  note: string
+  updatedAt: string
+}
+
+export type KokurikulerProjectStatus = 'rencana' | 'berjalan' | 'selesai'
+
+export type KokurikulerProject = {
+  id: string
+  title: string
+  description: string
+  coordinatorTeacherId: string
+  classId: string
+  studentIds: string[]
+  startDate: string
+  endDate: string
+  status: KokurikulerProjectStatus
+  updatedAt: string
+}
+
+export type Assignment = {
+  id: string
+  teacherId: string
+  classId: string
+  subject: string
+  title: string
+  description: string
+  dueDate: string
+  createdAt: string
+}
+
+export type StudentAssignmentStatus =
+  | 'belum_mengerjakan'
+  | 'sudah_mengerjakan'
+  | 'terlambat'
+
+export type StudentAssignment = {
+  id: string
+  assignmentId: string
+  studentId: string
+  status: StudentAssignmentStatus
+  teacherNote: string
+  updatedAt: string
+}
+
+export type TeachingJournal = {
+  id: string
+  teacherId: string
+  classId: string
+  meetingNumber: number
+  date: string
+  text: string
+  updatedAt: string
+}
+
 export type DispensationType = 'sakit' | 'izin' | 'lomba' | 'lainnya'
 
 export type Dispensation = {
@@ -144,6 +213,49 @@ export type Dispensation = {
   startDate: string
   endDate: string
   description: string
+}
+
+export type LateArrival = {
+  id: string
+  /** hari/tanggal ISO (YYYY-MM-DD) */
+  date: string
+  studentId: string
+  /** sinkron dari user.nisn milik siswa */
+  nisn: string
+  /** snapshot nama saat input (untuk audit) */
+  studentName: string
+  /** snapshot nama kelas saat input (untuk audit) */
+  className: string
+  reason: string
+  createdByUserId: string
+  createdAt: string
+  /** optional tindak lanjut: pelanggaran tambahan yang mengurangi poin */
+  followUpViolationId: string | null
+}
+
+export type GuestVisit = {
+  id: string
+  /** hari/tanggal ISO (YYYY-MM-DD) */
+  date: string
+  name: string
+  position: string
+  purpose: string
+  createdByUserId: string
+  createdAt: string
+}
+
+export type KbmLog = {
+  id: string
+  /** hari/tanggal ISO (YYYY-MM-DD) */
+  date: string
+  period: number
+  teacherId: string
+  teacherName: string
+  classId: string
+  className: string
+  note: string
+  createdByUserId: string
+  createdAt: string
 }
 
 /** @deprecated gunakan PointHistory */

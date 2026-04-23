@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
-import { CalendarDays, Lock } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { CalendarDays, ClipboardCheck, Lock, Save } from 'lucide-react'
 import { PaginatedTable } from '../components/ui/PaginatedTable'
 import { buildSmsUrl, buildWhatsAppUrl } from '../lib/userDisplay'
 import { useAuthStore } from '../store/authStore'
@@ -29,42 +29,54 @@ export function EAbsenPage() {
   const [date, setDate] = useState(today)
   const [period, setPeriod] = useState(1)
   const [classId, setClassId] = useState('')
+  /** Draf absensi per siswa; disimpan ke store lewat tombol Simpan */
+  const [draft, setDraft] = useState<Record<string, AttendanceStatus>>({})
+  const [validated, setValidated] = useState(false)
+  const [showValidationPanel, setShowValidationPanel] = useState(false)
   const [notifPayload, setNotifPayload] = useState<{
     phone: string
     message: string
   } | null>(null)
 
+  const classRosterKey = useMemo(
+    () =>
+      students
+        .filter((s) => s.classId === classId)
+        .map((s) => `${s.id}:${s.statusPrestasi}`)
+        .sort()
+        .join('|'),
+    [students, classId],
+  )
+
   useEffect(() => {
     if (!user || !classId) return
-    const { getAttendanceKey, setAttendanceStatus } = useDataStore.getState()
-    let applied = 0
-    for (const s of useDataStore.getState().students) {
-      if (s.classId !== classId) continue
-      if (
-        s.statusPrestasi !== 'lomba' &&
-        s.statusPrestasi !== 'karantina_lomba'
-      ) {
-        continue
-      }
+    const { getAttendanceKey } = useDataStore.getState()
+    const st = useDataStore.getState().students
+    const next: Record<string, AttendanceStatus> = {}
+    let autoDisp = 0
+    for (const s of st.filter((x) => x.classId === classId)) {
+      const locked =
+        s.statusPrestasi === 'lomba' || s.statusPrestasi === 'karantina_lomba'
       const ex = getAttendanceKey(s.id, date, period)
-      if (!ex) {
-        setAttendanceStatus({
-          studentId: s.id,
-          teacherId: user.id,
-          date,
-          period,
-          status: 'Dispensasi',
-        })
-        applied += 1
+      if (ex) {
+        next[s.id] = ex.status
+      } else if (locked) {
+        next[s.id] = 'Dispensasi'
+        autoDisp += 1
+      } else {
+        next[s.id] = 'H'
       }
     }
-    if (applied > 0) {
+    setDraft(next)
+    setValidated(false)
+    setShowValidationPanel(false)
+    if (autoDisp > 0) {
       useUiStore.getState().showToast(
-        `Dispensasi otomatis untuk ${applied} siswa (lomba/karantina).`,
+        `Dispensasi otomatis untuk ${autoDisp} siswa (lomba/karantina) pada draf — simpan untuk menulis ke data.`,
         'info',
       )
     }
-  }, [classId, date, period, user])
+  }, [classId, date, period, user, classRosterKey])
 
   const rows: Row[] = useMemo(() => {
     if (!classId) return []
@@ -84,39 +96,99 @@ export function EAbsenPage() {
       })
   }, [students, classId, getUserById])
 
-  const handleStatus = (r: Row, status: AttendanceStatus) => {
+  const handleDraftStatus = (r: Row, status: AttendanceStatus) => {
     if (!user) return
     if (r.locked && status !== 'Dispensasi') return
     const finalStatus: AttendanceStatus = r.locked ? 'Dispensasi' : status
-    const prev = getAttendanceKey(r.student.id, date, period)?.status
-    setAttendanceStatus({
-      studentId: r.student.id,
-      teacherId: user.id,
-      date,
-      period,
-      status: finalStatus,
-    })
-    if (!r.locked && finalStatus === 'Bolos' && prev !== 'Bolos') {
-      const stUser = getUserById(r.student.userId)
-      setNotifPayload({
-        phone: r.student.parentPhone,
-        message: `Notifikasi e-Smandel: ${stUser?.name ?? 'Siswa'} tercatat Bolos pada ${date} jam ke-${period}. Poin pelanggaran dikurangi otomatis.`,
-      })
-      showToast(
-        `Bolos: poin siswa ${r.studentName} dikurangi sesuai master pelanggaran.`,
-        'info',
-      )
-    } else {
-      showToast(`Absensi ${r.studentName} disimpan.`, 'success')
-    }
+    setDraft((prev) => ({ ...prev, [r.student.id]: finalStatus }))
+    setValidated(false)
+    setShowValidationPanel(false)
   }
 
-  const getCurrentStatus = (studentId: string): AttendanceStatus => {
-    const r = getAttendanceKey(studentId, date, period)
-    if (r) return r.status
-    const row = rows.find((x) => x.student.id === studentId)
-    if (row?.locked) return 'Dispensasi'
-    return 'H'
+  const attendance = useDataStore((s) => s.attendance)
+
+  const getCurrentStatus = useCallback(
+    (studentId: string): AttendanceStatus => {
+      if (draft[studentId] !== undefined) return draft[studentId]
+      const r = getAttendanceKey(studentId, date, period)
+      if (r) return r.status
+      const row = rows.find((x) => x.student.id === studentId)
+      if (row?.locked) return 'Dispensasi'
+      return 'H'
+    },
+    [draft, rows, date, period, getAttendanceKey],
+  )
+
+  const statusCounts = useMemo(() => {
+    void attendance
+    const counts: Partial<Record<AttendanceStatus, number>> = {}
+    for (const r of rows) {
+      const st = getCurrentStatus(r.student.id)
+      counts[st] = (counts[st] ?? 0) + 1
+    }
+    return counts
+  }, [rows, getCurrentStatus, attendance])
+
+  const handleValidasi = () => {
+    if (!classId || rows.length === 0) {
+      showToast('Pilih kelas yang berisi siswa.', 'error')
+      return
+    }
+    setValidated(true)
+    setShowValidationPanel(true)
+    showToast('Ringkasan absensi siap ditinjau. Klik Simpan untuk menulis data.', 'success')
+  }
+
+  const handleSimpan = () => {
+    if (!user) return
+    if (!classId) {
+      showToast('Pilih kelas.', 'error')
+      return
+    }
+    if (!validated) {
+      showToast('Klik Validasi terlebih dahulu untuk meninjau ringkasan absensi.', 'error')
+      return
+    }
+    const prevs = new Map(
+      rows.map((r) => [
+        r.student.id,
+        getAttendanceKey(r.student.id, date, period)?.status,
+      ]),
+    )
+    let firstBolosRow: Row | null = null
+    let bolosCount = 0
+    for (const r of rows) {
+      const status = getCurrentStatus(r.student.id)
+      const prev = prevs.get(r.student.id)
+      setAttendanceStatus({
+        studentId: r.student.id,
+        teacherId: user.id,
+        date,
+        period,
+        status,
+      })
+      if (!r.locked && status === 'Bolos' && prev !== 'Bolos') {
+        bolosCount += 1
+        if (!firstBolosRow) firstBolosRow = r
+      }
+    }
+    if (firstBolosRow) {
+      const stUser = getUserById(firstBolosRow.student.userId)
+      setNotifPayload({
+        phone: firstBolosRow.student.parentPhone,
+        message: `Notifikasi e-Smandel: ${stUser?.name ?? 'Siswa'} tercatat Bolos pada ${date} jam ke-${period}. Poin pelanggaran dikurangi otomatis.${
+          bolosCount > 1 ? ` (Total ${bolosCount} siswa Bolos pada jam ini.)` : ''
+        }`,
+      })
+    }
+    showToast(
+      firstBolosRow
+        ? `Absensi ${rows.length} siswa disimpan. ${bolosCount} siswa Bolos — poin dikurangi sesuai master pelanggaran.`
+        : `Absensi ${rows.length} siswa disimpan.`,
+      'success',
+    )
+    setValidated(false)
+    setShowValidationPanel(false)
   }
 
   const pointHistory = useDataStore((s) => s.pointHistory)
@@ -140,9 +212,10 @@ export function EAbsenPage() {
           e-Absen
         </h1>
         <p className="mt-1 text-sm text-slate-600">
-          Guru Mapel mencatat kehadiran per kelas dan jam. Status{' '}
-          <strong>Bolos</strong> memotong poin otomatis dari master pelanggaran
-          (audit di Riwayat Poin).
+          Guru mencatat kehadiran per kelas dan jam. Setelah mengisi status, gunakan{' '}
+          <strong>Validasi</strong> lalu <strong>Simpan absensi</strong> untuk menulis data.
+          Status <strong>Bolos</strong> memotong poin otomatis dari master pelanggaran (audit di
+          Riwayat Poin).
         </p>
       </div>
       {notifPayload ? (
@@ -233,6 +306,71 @@ export function EAbsenPage() {
         </div>
       </div>
 
+      {classId ? (
+        <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={handleValidasi}
+              disabled={rows.length === 0}
+              className="inline-flex items-center gap-2 rounded-xl border border-emerald-600 bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-900 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <ClipboardCheck className="h-4 w-4" />
+              Validasi
+            </button>
+            <button
+              type="button"
+              onClick={handleSimpan}
+              disabled={rows.length === 0 || !validated}
+              className="inline-flex items-center gap-2 rounded-xl bg-brand-navy px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-navy-dark disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Save className="h-4 w-4" />
+              Simpan absensi
+            </button>
+          </div>
+          <p className="text-xs text-slate-600">
+            Isi status di tabel, klik <span className="font-semibold">Validasi</span> untuk melihat
+            ringkasan, lalu <span className="font-semibold">Simpan absensi</span>. Mengubah status
+            setelah validasi memerlukan validasi ulang.
+          </p>
+          {showValidationPanel ? (
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50/80 p-4">
+              <p className="text-sm font-semibold text-emerald-900">Ringkasan validasi</p>
+              <p className="mt-1 text-xs text-emerald-800">
+                {date} · Jam ke-{period} ·{' '}
+                {classes.find((c) => c.id === classId)?.name ?? 'Kelas'}
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                {(
+                  [
+                    'H',
+                    'S',
+                    'I',
+                    'A',
+                    'Bolos',
+                    'Dispensasi',
+                  ] as AttendanceStatus[]
+                ).map((s) => {
+                  const n = statusCounts[s] ?? 0
+                  if (n === 0) return null
+                  return (
+                    <span
+                      key={s}
+                      className="rounded-lg bg-white px-2.5 py-1 font-medium text-emerald-900 shadow-sm"
+                    >
+                      {s}: {n}
+                    </span>
+                  )
+                })}
+              </div>
+              <p className="mt-2 text-xs text-emerald-800">
+                Total {rows.length} siswa. Lanjutkan dengan tombol Simpan absensi.
+              </p>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
       {!classId ? (
         <p className="text-sm text-slate-500">Pilih kelas untuk menampilkan siswa.</p>
       ) : (
@@ -280,7 +418,7 @@ export function EAbsenPage() {
                             value={current}
                             disabled={r.locked}
                             onChange={(e) =>
-                              handleStatus(
+                              handleDraftStatus(
                                 r,
                                 e.target.value as AttendanceStatus,
                               )

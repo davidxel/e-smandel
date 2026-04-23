@@ -32,7 +32,7 @@ export function AdminJadwalPiketPage() {
       <div>
         <h1 className="text-xl font-bold text-slate-800 md:text-2xl">Manajemen Jadwal Piket</h1>
         <p className="mt-1 text-sm text-slate-600">
-          Tentukan hari tugas piket untuk Guru Mapel. Sistem akan mengaktifkan modul e-Poin sesuai jadwal.
+          Tentukan hari tugas piket untuk Guru. Sistem akan mengaktifkan modul e-Poin sesuai jadwal.
         </p>
       </div>
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">

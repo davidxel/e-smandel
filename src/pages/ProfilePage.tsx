@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo } from 'react'
+import React, { useMemo } from 'react'
 import QRCode from 'react-qr-code'
 import { IdCard, School } from 'lucide-react'
+import { DataPrivacyNotice } from '../components/legal/DataPrivacyNotice'
 import { FileUploader } from '../components/ui/FileUploader'
 import { useAuthStore } from '../store/authStore'
 import { useDataStore } from '../store/dataStore'
@@ -29,24 +30,7 @@ class ProfileQrBoundary extends React.Component<QrBoundaryProps, QrBoundaryState
   }
 
   componentDidCatch(): void {
-    // #region agent log
-    fetch('http://127.0.0.1:7923/ingest/5ca3b835-f44b-49b1-84e7-96e4128da844', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Debug-Session-Id': 'd9b12b',
-      },
-      body: JSON.stringify({
-        sessionId: 'd9b12b',
-        hypothesisId: 'H3-FIX',
-        location: 'ProfilePage.tsx:ProfileQrBoundary',
-        message: 'QR subtree error caught',
-        data: {},
-        timestamp: Date.now(),
-        runId: 'post-fix',
-      }),
-    }).catch(() => {})
-    // #endregion
+    /* QR render failure — fallback UI ditampilkan */
   }
 
   componentDidUpdate(prevProps: QrBoundaryProps): void {
@@ -80,32 +64,24 @@ export function ProfilePage() {
   const [editNisn, setEditNisn] = React.useState('')
   const [saving, setSaving] = React.useState(false)
 
-  // #region agent log
-  useEffect(() => {
-    fetch('http://127.0.0.1:7923/ingest/5ca3b835-f44b-49b1-84e7-96e4128da844', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Debug-Session-Id': 'd9b12b',
-      },
-      body: JSON.stringify({
-        sessionId: 'd9b12b',
-        hypothesisId: 'H3',
-        location: 'ProfilePage.tsx:useEffect',
-        message: 'ProfilePage mounted',
-        data: { userPresent: !!user, role: user?.role },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {})
-  }, [user])
-  // #endregion
-
   const student = user ? getStudentByUserId(user.id) : undefined
   const className = student ? getClassById(student.classId)?.name : undefined
 
   const qrPayload = useMemo(() => {
     if (!user) return ''
     return buildQrPayload(user.id)
+  }, [user])
+
+  React.useEffect(() => {
+    if (!user) {
+      setEditName('')
+      setEditNip('')
+      setEditNisn('')
+      return
+    }
+    setEditName(user.name)
+    setEditNip(user.nip ?? '')
+    setEditNisn(user.nisn ?? '')
   }, [user])
 
   if (!user) return null
@@ -123,14 +99,14 @@ export function ProfilePage() {
       setSaving(false)
       return
     }
-    refreshSessionUser()
+    await refreshSessionUser()
     showToast('Profil berhasil diperbarui.', 'success')
     setSaving(false)
   }
 
-  const handlePhoto = (dataUrl: string) => {
+  const handlePhoto = async (dataUrl: string) => {
     updateUser(user.id, { profilePhotoDataUrl: dataUrl })
-    refreshSessionUser()
+    await refreshSessionUser()
     showToast('Foto profil diperbarui.', 'success')
   }
 
@@ -141,12 +117,6 @@ export function ProfilePage() {
 
   const idLabel = user.role === 'siswa' ? 'NISN' : 'NIP'
   const idValue = user.role === 'siswa' ? user.nisn ?? '—' : user.nip ?? '—'
-
-  React.useEffect(() => {
-    setEditName(user.name)
-    setEditNip(user.nip ?? '')
-    setEditNisn(user.nisn ?? '')
-  }, [user])
 
   return (
     <div className="mx-auto max-w-3xl space-y-8">
@@ -286,6 +256,8 @@ export function ProfilePage() {
           {saving ? 'Menyimpan...' : 'Simpan Perubahan'}
         </button>
       </form>
+
+      <DataPrivacyNotice />
     </div>
   )
 }

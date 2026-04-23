@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react'
+import { useAuthStore } from '../store/authStore'
 import { useDataStore } from '../store/dataStore'
 import { useUiStore } from '../store/uiStore'
-import type { CompetitionLevel, CompetitionStatus } from '../types/schema'
+import type { CompetitionStatus } from '../types/schema'
 
-const LEVEL_LABEL: Record<CompetitionLevel, string> = {
+const LEVEL_LABEL = {
   tingkat_sekolah: 'Tingkat Sekolah',
   tingkat_kota: 'Tingkat Kota',
   tingkat_provinsi_nasional: 'Tingkat Provinsi (Nasional)',
@@ -17,25 +18,22 @@ const STATUS_LABEL: Record<CompetitionStatus, string> = {
 }
 
 export function KegiatanLombaPage() {
+  const authUser = useAuthStore((s) => s.user)
   const students = useDataStore((s) => s.students)
-  const users = useDataStore((s) => s.users)
   const classes = useDataStore((s) => s.classes)
   const getUserById = useDataStore((s) => s.getUserById)
   const competitions = useDataStore((s) => s.competitions)
   const competitionStatusHistory = useDataStore((s) => s.competitionStatusHistory)
-  const upsertCompetition = useDataStore((s) => s.upsertCompetition)
-  const deleteCompetition = useDataStore((s) => s.deleteCompetition)
+  const updateCompetitionStatus = useDataStore((s) => s.updateCompetitionStatus)
   const showToast = useUiStore((s) => s.showToast)
-  const [studentId, setStudentId] = useState('')
-  const [competitionName, setCompetitionName] = useState('')
-  const [level, setLevel] = useState<CompetitionLevel>('tingkat_sekolah')
-  const [mentorTeacherId, setMentorTeacherId] = useState('')
-  const [status, setStatus] = useState<CompetitionStatus>('karantina_lomba')
   const [historyStudentId, setHistoryStudentId] = useState('')
+  const [statusDraft, setStatusDraft] = useState<Record<string, CompetitionStatus>>({})
 
-  const mentorRows = users.filter(
-    (u) => u.role === 'guru_pembimbing' || u.role === 'guru_mapel',
-  )
+  const actorId = authUser?.id ?? ''
+  const canManage =
+    authUser?.role === 'super_admin' ||
+    authUser?.role === 'kesiswaan' ||
+    (authUser?.role === 'guru_mapel' && !!authUser.isCompetitionMentor)
 
   const studentRows = useMemo(
     () =>
@@ -47,24 +45,19 @@ export function KegiatanLombaPage() {
       })),
     [students, classes, getUserById],
   )
-  const selectedHistoryStudentId = historyStudentId || studentRows[0]?.id || ''
+  const scopedCompetitions =
+    authUser?.role === 'guru_mapel' ? competitions.filter((c) => c.mentorTeacherId === actorId) : competitions
+  const selectedHistoryStudentId =
+    historyStudentId || scopedCompetitions[0]?.studentId || studentRows[0]?.id || ''
   const historyRows = competitionStatusHistory
     .filter((h) => h.studentId === selectedHistoryStudentId)
     .slice(0, 40)
 
-  const submit = (e: React.FormEvent) => {
-    e.preventDefault()
-    const res = upsertCompetition({
-      studentId,
-      competitionName,
-      level,
-      mentorTeacherId,
-      status,
-    })
+  const saveStatus = (competitionId: string, fallback: CompetitionStatus) => {
+    const nextStatus = statusDraft[competitionId] ?? fallback
+    const res = updateCompetitionStatus({ actorId, competitionId, status: nextStatus })
     showToast(
-      res.ok
-        ? 'Kegiatan lomba disimpan. Status absensi siswa otomatis diamankan.'
-        : res.message ?? 'Gagal menyimpan kegiatan lomba.',
+      res.ok ? 'Status lomba diperbarui.' : res.message ?? 'Gagal memperbarui status.',
       res.ok ? 'success' : 'error',
     )
   }
@@ -76,114 +69,37 @@ export function KegiatanLombaPage() {
           Kegiatan Lomba
         </h1>
         <p className="mt-1 text-sm text-slate-600">
-          Atur lomba yang diikuti siswa, guru pembimbing, dan status karantina/sedang
-          lomba agar absensi otomatis terlindungi (Dispensasi).
+          Guru pembimbing terpilih dapat mengatur status lomba siswa agar absensi otomatis terlindungi (Dispensasi).
         </p>
       </div>
 
-      <form
-        onSubmit={submit}
-        className="grid gap-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm md:grid-cols-2"
-      >
-        <div>
-          <label className="text-xs font-medium text-slate-600">Siswa</label>
-          <select
-            required
-            value={studentId}
-            onChange={(e) => setStudentId(e.target.value)}
-            className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-          >
-            <option value="">— Pilih siswa —</option>
-            {studentRows.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name} ({s.className})
-              </option>
-            ))}
-          </select>
+      {!canManage ? (
+        <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+          Fitur tidak bisa diakses karena Anda bukan pembimbing lomba.
         </div>
-        <div>
-          <label className="text-xs font-medium text-slate-600">Nama Lomba</label>
-          <input
-            required
-            value={competitionName}
-            onChange={(e) => setCompetitionName(e.target.value)}
-            className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-            placeholder="Contoh: Olimpiade Matematika"
-          />
-        </div>
-        <div>
-          <label className="text-xs font-medium text-slate-600">Jenis Lomba</label>
-          <select
-            value={level}
-            onChange={(e) => setLevel(e.target.value as CompetitionLevel)}
-            className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-          >
-            {(Object.keys(LEVEL_LABEL) as CompetitionLevel[]).map((k) => (
-              <option key={k} value={k}>
-                {LEVEL_LABEL[k]}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="text-xs font-medium text-slate-600">Guru Pembimbing</label>
-          <select
-            required
-            value={mentorTeacherId}
-            onChange={(e) => setMentorTeacherId(e.target.value)}
-            className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-          >
-            <option value="">— Pilih guru pembimbing —</option>
-            {mentorRows.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="text-xs font-medium text-slate-600">Status</label>
-          <select
-            value={status}
-            onChange={(e) => setStatus(e.target.value as CompetitionStatus)}
-            className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-          >
-            {(Object.keys(STATUS_LABEL) as CompetitionStatus[]).map((k) => (
-              <option key={k} value={k}>
-                {STATUS_LABEL[k]}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="flex items-end">
-          <button
-            type="submit"
-            className="w-full rounded-lg bg-brand-navy px-4 py-2.5 text-sm font-semibold text-white"
-          >
-            Simpan Kegiatan Lomba
-          </button>
-        </div>
-      </form>
+      ) : null}
 
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <h2 className="text-sm font-semibold text-slate-800">
-          Daftar Kegiatan Lomba Aktif
+          Daftar Kegiatan Lomba
         </h2>
         <div className="mt-3 overflow-x-auto">
-          <table className="w-full min-w-[860px] text-left text-sm">
+          <table className="w-full min-w-[980px] text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
               <tr>
                 <th className="px-3 py-2">Siswa</th>
                 <th className="px-3 py-2">Kelas</th>
                 <th className="px-3 py-2">Lomba</th>
-                <th className="px-3 py-2">Jenis</th>
+                <th className="px-3 py-2">Tingkat</th>
                 <th className="px-3 py-2">Guru Pembimbing</th>
+                <th className="px-3 py-2">Karantina</th>
+                <th className="px-3 py-2">Periode Lomba</th>
                 <th className="px-3 py-2">Status</th>
                 <th className="px-3 py-2">Aksi</th>
               </tr>
             </thead>
             <tbody>
-              {competitions.map((c) => {
+              {scopedCompetitions.map((c) => {
                 const st = students.find((s) => s.id === c.studentId)
                 const su = st ? getUserById(st.userId) : undefined
                 const className = st
@@ -197,22 +113,49 @@ export function KegiatanLombaPage() {
                     <td className="px-3 py-2">{c.competitionName}</td>
                     <td className="px-3 py-2">{LEVEL_LABEL[c.level]}</td>
                     <td className="px-3 py-2">{mentor?.name ?? '—'}</td>
-                    <td className="px-3 py-2">{STATUS_LABEL[c.status]}</td>
+                    <td className="px-3 py-2">{c.quarantineDate || '—'}</td>
+                    <td className="px-3 py-2">
+                      {c.competitionStartDate} s.d. {c.competitionEndDate}
+                    </td>
+                    <td className="px-3 py-2">
+                      <select
+                        disabled={!canManage}
+                        value={statusDraft[c.id] ?? c.status}
+                        onChange={(e) =>
+                          setStatusDraft((prev) => ({
+                            ...prev,
+                            [c.id]: e.target.value as CompetitionStatus,
+                          }))
+                        }
+                        className="rounded border border-slate-200 bg-white px-2 py-1 text-xs"
+                      >
+                        {(Object.keys(STATUS_LABEL) as CompetitionStatus[]).map((k) => (
+                          <option key={k} value={k}>
+                            {STATUS_LABEL[k]}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
                     <td className="px-3 py-2">
                       <button
                         type="button"
-                        onClick={() => {
-                          deleteCompetition(c.id)
-                          showToast('Kegiatan lomba dihapus.', 'info')
-                        }}
-                        className="rounded border border-slate-300 bg-white px-2 py-1 text-xs"
+                        disabled={!canManage}
+                        onClick={() => saveStatus(c.id, c.status)}
+                        className="rounded border border-slate-300 bg-white px-2 py-1 text-xs disabled:opacity-40"
                       >
-                        Hapus
+                        Simpan Status
                       </button>
                     </td>
                   </tr>
                 )
               })}
+              {scopedCompetitions.length === 0 ? (
+                <tr>
+                  <td className="px-3 py-3 text-xs text-slate-500" colSpan={9}>
+                    Belum ada penugasan lomba untuk akun ini.
+                  </td>
+                </tr>
+              ) : null}
             </tbody>
           </table>
         </div>

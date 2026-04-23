@@ -23,6 +23,8 @@ export function ToastHost() {
     <div
       className="pointer-events-none fixed bottom-6 left-1/2 z-[100] flex w-[min(92vw,28rem)] -translate-x-1/2 justify-center px-4"
       role="status"
+      aria-live="polite"
+      aria-atomic="true"
     >
       <div
         className={`pointer-events-auto flex w-full items-start gap-3 rounded-xl border px-4 py-3 text-sm shadow-lg backdrop-blur-sm ${styles}`}

@@ -1,7 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Pencil, Plus, Trash2 } from 'lucide-react'
 import { PaginatedTable } from '../../components/ui/PaginatedTable'
 import { BOLOS_VIOLATION_SLUG } from '../../data/initialSeed'
+import { pullWorkspaceFromServer } from '../../lib/pullWorkspace'
+import { flushWorkspacePushNow } from '../../lib/workspaceSync'
 import { useDataStore } from '../../store/dataStore'
 import { useUiStore } from '../../store/uiStore'
 import type { ViolationCategory, ViolationMaster } from '../../types/schema'
@@ -28,9 +30,14 @@ export function AdminPelanggaranPage() {
   const [ePoin, setEPoin] = useState(0)
   const [eCat, setECat] = useState<ViolationCategory>('ringan')
 
+  useEffect(() => {
+    void pullWorkspaceFromServer()
+  }, [])
+
   const handleAdd = (e: React.FormEvent) => {
     e.preventDefault()
     addViolation({ name: nama, points: poin, category: cat })
+    flushWorkspacePushNow()
     showToast('Pelanggaran ditambahkan.', 'success')
     setNama('')
     setPoin(5)
@@ -52,6 +59,7 @@ export function AdminPelanggaranPage() {
       points: ePoin,
       category: eCat,
     })
+    flushWorkspacePushNow()
     showToast('Data diperbarui.', 'success')
     setEditing(null)
   }
@@ -233,6 +241,7 @@ export function AdminPelanggaranPage() {
                           onClick={() => {
                             if (confirm(`Hapus "${v.name}"?`)) {
                               deleteViolation(v.id)
+                              flushWorkspacePushNow()
                               showToast('Dihapus.', 'info')
                             }
                           }}

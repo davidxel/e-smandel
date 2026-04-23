@@ -1,23 +1,29 @@
 import type { UserRole } from '../types/roles'
 import type {
+  Assignment,
   Attendance,
   ClassRoom,
   CompetitionEntry,
   CompetitionStatusHistory,
+  TeachingJournal,
   PointHistory,
   PointRedemption,
   PointRedemptionRequest,
+  GuestVisit,
+  KbmLog,
+  LateArrival,
   Student,
+  StudentAssignment,
   User,
   ViolationMaster,
 } from '../types/schema'
 
 export const GURU_STAFF_ROLES: UserRole[] = [
   'kepsek',
+  'kurikulum',
   'bk',
   'guru_piket',
   'guru_mapel',
-  'guru_pembimbing',
 ]
 
 export const BOLOS_VIOLATION_SLUG = 'bolos'
@@ -76,6 +82,10 @@ export function buildInitialUsers(): User[] {
       jabatan: 'Pengelola Sistem',
       isPiket: false,
       piketScheduleDays: [],
+      isCompetitionMentor: false,
+      is_walikelas: false,
+      managed_class_id: null,
+      isKokurikulerCoordinator: false,
       profilePhotoDataUrl: null,
     },
     {
@@ -88,6 +98,10 @@ export function buildInitialUsers(): User[] {
       jabatan: 'Kepala Sekolah',
       isPiket: false,
       piketScheduleDays: [],
+      isCompetitionMentor: false,
+      is_walikelas: false,
+      managed_class_id: null,
+      isKokurikulerCoordinator: false,
       profilePhotoDataUrl: null,
     },
     {
@@ -100,6 +114,10 @@ export function buildInitialUsers(): User[] {
       jabatan: 'Kepala Urusan Kesiswaan',
       isPiket: false,
       piketScheduleDays: [],
+      isCompetitionMentor: false,
+      is_walikelas: false,
+      managed_class_id: null,
+      isKokurikulerCoordinator: false,
       profilePhotoDataUrl: null,
     },
     {
@@ -112,18 +130,26 @@ export function buildInitialUsers(): User[] {
       jabatan: 'Guru BK',
       isPiket: false,
       piketScheduleDays: [],
+      isCompetitionMentor: false,
+      is_walikelas: false,
+      managed_class_id: null,
+      isKokurikulerCoordinator: false,
       profilePhotoDataUrl: null,
     },
     {
       id: 'u5',
-      name: 'Dewi Lestari, S.Pd.',
-      role: 'guru_piket',
+      name: 'Nina Kurniawati, M.Pd.',
+      role: 'kurikulum',
       password: 'demo123',
-      nip: '199001202014042004',
+      nip: '198909102013022010',
       nisn: null,
-      jabatan: 'Guru Piket',
-      isPiket: true,
-      piketScheduleDays: [1, 2, 3, 4, 5],
+      jabatan: 'Wakil Kurikulum',
+      isPiket: false,
+      piketScheduleDays: [],
+      isCompetitionMentor: false,
+      is_walikelas: false,
+      managed_class_id: null,
+      isKokurikulerCoordinator: false,
       profilePhotoDataUrl: null,
     },
     {
@@ -133,21 +159,13 @@ export function buildInitialUsers(): User[] {
       password: 'demo123',
       nip: '199204052016052005',
       nisn: null,
-      jabatan: 'Guru Mapel Matematika',
+      jabatan: 'Guru Matematika',
       isPiket: false,
       piketScheduleDays: [2],
-      profilePhotoDataUrl: null,
-    },
-    {
-      id: 'u7',
-      name: 'Eko Prasetyo, S.Pd.',
-      role: 'guru_pembimbing',
-      password: 'demo123',
-      nip: '198712012011062006',
-      nisn: null,
-      jabatan: 'Guru Pembimbing OSIS',
-      isPiket: false,
-      piketScheduleDays: [],
+      isCompetitionMentor: false,
+      is_walikelas: true,
+      managed_class_id: 'cls-x-ipa-1',
+      isKokurikulerCoordinator: false,
       profilePhotoDataUrl: null,
     },
     {
@@ -160,6 +178,10 @@ export function buildInitialUsers(): User[] {
       jabatan: null,
       isPiket: false,
       piketScheduleDays: [],
+      isCompetitionMentor: false,
+      is_walikelas: false,
+      managed_class_id: null,
+      isKokurikulerCoordinator: false,
       profilePhotoDataUrl: null,
     },
   ]
@@ -216,6 +238,10 @@ export function buildPlaceholderStudentUsers(): User[] {
       jabatan: null,
       isPiket: false,
       piketScheduleDays: [],
+      isCompetitionMentor: false,
+      is_walikelas: false,
+      managed_class_id: null,
+      isKokurikulerCoordinator: false,
       profilePhotoDataUrl: null,
     },
     {
@@ -228,6 +254,10 @@ export function buildPlaceholderStudentUsers(): User[] {
       jabatan: null,
       isPiket: false,
       piketScheduleDays: [],
+      isCompetitionMentor: false,
+      is_walikelas: false,
+      managed_class_id: null,
+      isKokurikulerCoordinator: false,
       profilePhotoDataUrl: null,
     },
   ]
@@ -254,5 +284,29 @@ export function buildInitialCompetitions(): CompetitionEntry[] {
 }
 
 export function buildInitialCompetitionStatusHistory(): CompetitionStatusHistory[] {
+  return []
+}
+
+export function buildInitialAssignments(): Assignment[] {
+  return []
+}
+
+export function buildInitialStudentAssignments(): StudentAssignment[] {
+  return []
+}
+
+export function buildInitialTeachingJournals(): TeachingJournal[] {
+  return []
+}
+
+export function buildInitialLateArrivals(): LateArrival[] {
+  return []
+}
+
+export function buildInitialGuestVisits(): GuestVisit[] {
+  return []
+}
+
+export function buildInitialKbmLogs(): KbmLog[] {
   return []
 }

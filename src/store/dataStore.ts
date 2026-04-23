@@ -1,55 +1,39 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import {
-  BOLOS_VIOLATION_SLUG,
-  buildInitialAttendance,
-  buildInitialClasses,
-  buildInitialCompetitions,
-  buildInitialCompetitionStatusHistory,
-  buildInitialPointHistory,
-  buildInitialPointRedemptions,
-  buildInitialPointRedemptionRequests,
-  buildInitialStudents,
-  buildInitialUsers,
-  buildInitialViolations,
-  buildPlaceholderStudentUsers,
-} from '../data/initialSeed'
+import { BOLOS_VIOLATION_SLUG } from '../data/initialSeed'
 import { newId } from '../lib/ids'
+import { buildFreshWorkspaceData, syncCompetitionMentorFlags } from '../lib/workspaceState'
 import type { UserRole } from '../types/roles'
+import type { DataState } from '../types/dataState'
 import type {
+  Assignment,
   Attendance,
   AttendanceStatus,
   AuthUser,
   ClassRoom,
   CompetitionEntry,
+  KokurikulerProject,
+  KokurikulerProjectStatus,
   CompetitionLevel,
-  CompetitionStatusHistory,
   CompetitionStatus,
+  GuestVisit,
+  KbmLog,
+  LateArrival,
   PointHistory,
   PointRedemption,
   PointRedemptionRequest,
   Student,
+  StudentAssignmentStatus,
+  TeachingJournal,
   User,
   ViolationMaster,
 } from '../types/schema'
 
-export type DataState = {
-  users: User[]
-  students: Student[]
-  classes: ClassRoom[]
-  violations: ViolationMaster[]
-  attendance: Attendance[]
-  pointHistory: PointHistory[]
-  pointRedemptions: PointRedemption[]
-  pointRedemptionRequests: PointRedemptionRequest[]
-  competitions: CompetitionEntry[]
-  competitionStatusHistory: CompetitionStatusHistory[]
-}
+export type { DataState } from '../types/dataState'
 
 type DataActions = {
   /** Sinkronkan sesi auth dari data terbaru */
   toAuthUser: (u: User) => AuthUser
-  findUserForLogin: (credential: string, password: string) => User | null
   getUserById: (id: string) => User | undefined
   updateUser: (id: string, patch: Partial<Omit<User, 'id' | 'password'>> & { password?: string }) => void
   updateSensitiveUserByActor: (
@@ -58,6 +42,8 @@ type DataActions = {
     patch: Pick<User, 'name' | 'nip' | 'nisn'>,
   ) => { ok: boolean; message?: string }
   setPiketSchedule: (userId: string, days: number[]) => void
+  setWaliKelasAssignment: (userId: string, classId: string | null) => { ok: boolean; message?: string }
+  setKokurikulerCoordinator: (userId: string, enabled: boolean) => { ok: boolean; message?: string }
   addStaffUser: (input: {
     name: string
     nip: string
@@ -74,6 +60,34 @@ type DataActions = {
 
   getStudentByUserId: (userId: string) => Student | undefined
   getStudentById: (id: string) => Student | undefined
+  createAssignment: (input: {
+    teacherId: string
+    classId: string
+    subject: string
+    title: string
+    description: string
+    dueDate: string
+  }) => { ok: boolean; message?: string; assignmentId?: string }
+  updateAssignment: (
+    id: string,
+    patch: Partial<
+      Pick<Assignment, 'teacherId' | 'classId' | 'subject' | 'title' | 'description' | 'dueDate'>
+    >,
+  ) => { ok: boolean; message?: string }
+  deleteAssignment: (id: string) => void
+  upsertTeachingJournal: (input: {
+    teacherId: string
+    classId: string
+    meetingNumber: number
+    date: string
+    text: string
+  }) => { ok: boolean; message?: string; id?: string }
+  updateStudentAssignment: (input: {
+    assignmentId: string
+    studentId: string
+    status?: StudentAssignmentStatus
+    teacherNote?: string
+  }) => { ok: boolean; message?: string }
   addStudent: (input: {
     name: string
     nisn: string
@@ -102,7 +116,7 @@ type DataActions = {
   deleteStudent: (id: string) => void
   importStudentsFromRows: (
     rows: { nisn: string; name: string; className: string }[],
-  ) => { created: number; errors: string[] }
+  ) => { created: number; errors: string[]; createdUserIds: string[] }
 
   addViolation: (input: Omit<ViolationMaster, 'id' | 'slug'> & { slug?: string }) => ViolationMaster
   updateViolation: (id: string, patch: Partial<ViolationMaster>) => void
@@ -121,6 +135,13 @@ type DataActions = {
     date: string,
     period: number,
   ) => Attendance | undefined
+  updateAttendanceByWaliKelas: (input: {
+    actorId: string
+    studentId: string
+    date: string
+    period: number
+    status: 'S' | 'I'
+  }) => { ok: boolean; message?: string }
   applyQuickViolation: (input: {
     studentId: string
     teacherId: string
@@ -151,51 +172,80 @@ type DataActions = {
     points: number
     reason: string
   }) => { ok: boolean; message?: string }
+
+  addLateArrival: (input: {
+    date: string
+    studentId: string
+    reason: string
+    createdByUserId: string
+    /** optional tindak lanjut: pelanggaran tambahan */
+    followUpViolationId?: string | null
+  }) => { ok: boolean; message?: string; id?: string }
+
+  addGuestVisit: (input: {
+    date: string
+    name: string
+    position: string
+    purpose: string
+    createdByUserId: string
+  }) => { ok: boolean; message?: string; id?: string }
+
+  addKbmLog: (input: {
+    date: string
+    period: number
+    teacherId: string
+    classId: string
+    note?: string
+    createdByUserId: string
+  }) => { ok: boolean; message?: string; id?: string }
   upsertCompetition: (input: {
+    actorId: string
     studentId: string
     competitionName: string
     level: CompetitionLevel
     mentorTeacherId: string
+    quarantineDate: string
+    competitionStartDate: string
+    competitionEndDate: string
+    status: CompetitionStatus
+  }) => { ok: boolean; message?: string }
+  updateCompetitionStatus: (input: {
+    actorId: string
+    competitionId: string
     status: CompetitionStatus
   }) => { ok: boolean; message?: string }
   deleteCompetition: (id: string) => void
-}
-
-function buildFreshState(): DataState {
-  const classes = buildInitialClasses()
-  return {
-    users: [...buildInitialUsers(), ...buildPlaceholderStudentUsers()],
-    students: buildInitialStudents(),
-    classes,
-    violations: buildInitialViolations(),
-    attendance: buildInitialAttendance(),
-    pointHistory: buildInitialPointHistory(),
-    pointRedemptions: buildInitialPointRedemptions(),
-    pointRedemptionRequests: buildInitialPointRedemptionRequests(),
-    competitions: buildInitialCompetitions(),
-    competitionStatusHistory: buildInitialCompetitionStatusHistory(),
-  }
+  upsertWaliKelasNote: (input: {
+    actorId: string
+    studentId: string
+    note: string
+  }) => { ok: boolean; message?: string }
+  upsertKokurikulerProject: (input: {
+    actorId: string
+    title: string
+    description: string
+    coordinatorTeacherId: string
+    classId: string
+    studentIds: string[]
+    startDate: string
+    endDate: string
+  }) => { ok: boolean; message?: string }
+  updateKokurikulerProjectStatus: (input: {
+    actorId: string
+    projectId: string
+    status: KokurikulerProjectStatus
+  }) => { ok: boolean; message?: string }
+  deleteKokurikulerProject: (id: string) => void
 }
 
 export const useDataStore = create<DataState & DataActions>()(
   persist(
     (set, get) => ({
-      ...buildFreshState(),
+      ...buildFreshWorkspaceData(),
 
       toAuthUser: (u) => {
         const { password: _p, ...rest } = u
         return rest
-      },
-
-      findUserForLogin: (credential, password) => {
-        const c = credential.trim()
-        return (
-          get().users.find(
-            (u) =>
-              u.password === password &&
-              (u.nip?.trim() === c || u.nisn?.trim() === c),
-          ) ?? null
-        )
       },
 
       getUserById: (id) => get().users.find((u) => u.id === id),
@@ -252,6 +302,44 @@ export const useDataStore = create<DataState & DataActions>()(
           ),
         }))
       },
+      setWaliKelasAssignment: (userId, classId) => {
+        const teacher = get().getUserById(userId)
+        if (!teacher || teacher.role !== 'guru_mapel') {
+          return { ok: false, message: 'Hanya role Guru yang dapat menjadi wali kelas.' }
+        }
+        if (classId && !get().classes.some((c) => c.id === classId)) {
+          return { ok: false, message: 'Kelas tidak ditemukan.' }
+        }
+        set((s) => ({
+          users: s.users.map((u) => {
+            if (u.role !== 'guru_mapel') return u
+            if (u.id === userId) {
+              return {
+                ...u,
+                is_walikelas: !!classId,
+                managed_class_id: classId,
+              }
+            }
+            if (classId && u.managed_class_id === classId) {
+              return { ...u, is_walikelas: false, managed_class_id: null }
+            }
+            return u
+          }),
+        }))
+        return { ok: true }
+      },
+      setKokurikulerCoordinator: (userId, enabled) => {
+        const teacher = get().getUserById(userId)
+        if (!teacher || teacher.role !== 'guru_mapel') {
+          return { ok: false, message: 'Koordinator kokurikuler hanya bisa ditetapkan ke role Guru.' }
+        }
+        set((s) => ({
+          users: s.users.map((u) =>
+            u.id === userId ? { ...u, isKokurikulerCoordinator: enabled } : u,
+          ),
+        }))
+        return { ok: true }
+      },
 
       addStaffUser: ({ name, nip, role, jabatan, password }) => {
         if (role === 'siswa' || role === 'super_admin') {
@@ -267,6 +355,10 @@ export const useDataStore = create<DataState & DataActions>()(
           jabatan: jabatan.trim() || null,
           isPiket: role === 'guru_piket',
           piketScheduleDays: role === 'guru_piket' ? [1, 2, 3, 4, 5] : [],
+          isCompetitionMentor: false,
+          is_walikelas: false,
+          managed_class_id: null,
+          isKokurikulerCoordinator: false,
           profilePhotoDataUrl: null,
         }
         set((s) => ({ users: [...s.users, user] }))
@@ -274,10 +366,28 @@ export const useDataStore = create<DataState & DataActions>()(
       },
 
       deleteUser: (id) => {
-        set((s) => ({
-          users: s.users.filter((u) => u.id !== id),
-          students: s.students.filter((st) => st.userId !== id),
-        }))
+        set((s) => {
+          const users = s.users.filter((u) => u.id !== id)
+          const students = s.students.filter((st) => st.userId !== id)
+          const studentIds = new Set(students.map((st) => st.id))
+          const competitions = s.competitions.filter(
+            (c) => c.mentorTeacherId !== id && students.some((st) => st.id === c.studentId),
+          )
+          const assignments = s.assignments.filter((assignment) => assignment.teacherId !== id)
+          const assignmentIds = new Set(assignments.map((assignment) => assignment.id))
+          return {
+            users: syncCompetitionMentorFlags(users, competitions),
+            students,
+            competitions,
+            assignments,
+            studentAssignments: s.studentAssignments.filter(
+              (item) => assignmentIds.has(item.assignmentId) && studentIds.has(item.studentId),
+            ),
+            waliKelasNotes: s.waliKelasNotes.filter(
+              (n) => n.teacherId !== id && students.some((st) => st.id === n.studentId),
+            ),
+          }
+        })
       },
 
       getClassById: (id) => get().classes.find((c) => c.id === id),
@@ -300,8 +410,18 @@ export const useDataStore = create<DataState & DataActions>()(
       deleteClass: (id) => {
         set((s) => ({
           classes: s.classes.filter((c) => c.id !== id),
+          assignments: s.assignments.filter((assignment) => assignment.classId !== id),
+          studentAssignments: s.studentAssignments.filter((item) => {
+            const assignment = s.assignments.find((entry) => entry.id === item.assignmentId)
+            return assignment?.classId !== id
+          }),
           students: s.students.map((st) =>
             st.classId === id ? { ...st, classId: '' } : st,
+          ),
+          users: s.users.map((u) =>
+            u.managed_class_id === id
+              ? { ...u, is_walikelas: false, managed_class_id: null }
+              : u,
           ),
         }))
       },
@@ -310,6 +430,186 @@ export const useDataStore = create<DataState & DataActions>()(
         get().students.find((st) => st.userId === userId),
 
       getStudentById: (id) => get().students.find((st) => st.id === id),
+
+      createAssignment: ({ teacherId, classId, subject, title, description, dueDate }) => {
+        const teacher = get().getUserById(teacherId)
+        if (!teacher || (teacher.role !== 'guru_mapel' && teacher.role !== 'super_admin')) {
+          return { ok: false, message: 'Hanya guru atau super admin yang dapat membuat tugas.' }
+        }
+        if (!get().classes.some((c) => c.id === classId)) {
+          return { ok: false, message: 'Kelas tidak ditemukan.' }
+        }
+        const cleanTitle = title.trim()
+        const cleanSubject = subject.trim()
+        if (!cleanTitle || !cleanSubject || !dueDate) {
+          return { ok: false, message: 'Mapel, judul, dan tenggat wajib diisi.' }
+        }
+        const assignmentId = newId()
+        const now = new Date().toISOString()
+        const assignment: Assignment = {
+          id: assignmentId,
+          teacherId,
+          classId,
+          subject: cleanSubject,
+          title: cleanTitle,
+          description: description.trim(),
+          dueDate,
+          createdAt: now,
+        }
+        const classStudents = get().students.filter((student) => student.classId === classId)
+        set((s) => ({
+          assignments: [assignment, ...s.assignments],
+          studentAssignments: [
+            ...classStudents.map((student) => ({
+              id: newId(),
+              assignmentId,
+              studentId: student.id,
+              status: 'belum_mengerjakan' as const,
+              teacherNote: '',
+              updatedAt: now,
+            })),
+            ...s.studentAssignments,
+          ],
+        }))
+        return { ok: true, assignmentId }
+      },
+
+      updateAssignment: (id, patch) => {
+        const current = get().assignments.find((item) => item.id === id)
+        if (!current) return { ok: false, message: 'Tugas tidak ditemukan.' }
+        const nextTeacherId = patch.teacherId ?? current.teacherId
+        const teacher = get().getUserById(nextTeacherId)
+        if (!teacher || (teacher.role !== 'guru_mapel' && teacher.role !== 'super_admin')) {
+          return { ok: false, message: 'Guru penanggung jawab tidak valid.' }
+        }
+        const nextClassId = patch.classId ?? current.classId
+        if (!get().classes.some((c) => c.id === nextClassId)) {
+          return { ok: false, message: 'Kelas tidak ditemukan.' }
+        }
+        const nextTitle = (patch.title ?? current.title).trim()
+        const nextSubject = (patch.subject ?? current.subject).trim()
+        const nextDueDate = patch.dueDate ?? current.dueDate
+        if (!nextTitle || !nextSubject || !nextDueDate) {
+          return { ok: false, message: 'Mapel, judul, dan tenggat wajib diisi.' }
+        }
+        set((s) => {
+          const assignments = s.assignments.map((item) =>
+            item.id === id
+              ? {
+                  ...item,
+                  teacherId: nextTeacherId,
+                  classId: nextClassId,
+                  subject: nextSubject,
+                  title: nextTitle,
+                  description: patch.description !== undefined ? patch.description.trim() : item.description,
+                  dueDate: nextDueDate,
+                }
+              : item,
+          )
+          const classStudentIds = new Set(
+            s.students.filter((student) => student.classId === nextClassId).map((student) => student.id),
+          )
+          const existingEntries = s.studentAssignments.filter((item) => item.assignmentId === id)
+          const existingStudentIds = new Set(existingEntries.map((item) => item.studentId))
+          const keptEntries = s.studentAssignments.filter(
+            (item) => item.assignmentId !== id || classStudentIds.has(item.studentId),
+          )
+          const newEntries = Array.from(classStudentIds)
+            .filter((studentId) => !existingStudentIds.has(studentId))
+            .map((studentId) => ({
+              id: newId(),
+              assignmentId: id,
+              studentId,
+              status: 'belum_mengerjakan' as const,
+              teacherNote: '',
+              updatedAt: new Date().toISOString(),
+            }))
+          return {
+            assignments,
+            studentAssignments: [...newEntries, ...keptEntries],
+          }
+        })
+        return { ok: true }
+      },
+
+      deleteAssignment: (id) => {
+        set((s) => ({
+          assignments: s.assignments.filter((item) => item.id !== id),
+          studentAssignments: s.studentAssignments.filter((item) => item.assignmentId !== id),
+        }))
+      },
+
+      upsertTeachingJournal: ({ teacherId, classId, meetingNumber, date, text }) => {
+        const teacher = get().getUserById(teacherId)
+        if (!teacher) return { ok: false, message: 'Pengguna tidak valid.' }
+        if (teacher.role === 'kepsek' || teacher.role === 'bk' || teacher.role === 'siswa') {
+          return { ok: false, message: 'Role tidak diizinkan membuat jurnal mengajar.' }
+        }
+        if (!get().classes.some((c) => c.id === classId)) {
+          return { ok: false, message: 'Kelas tidak ditemukan.' }
+        }
+        if (!date) return { ok: false, message: 'Tanggal wajib diisi.' }
+        const meeting = Math.floor(meetingNumber)
+        if (!Number.isFinite(meeting) || meeting <= 0) {
+          return { ok: false, message: 'Pertemuan ke berapa harus angka positif.' }
+        }
+        const cleanText = text.trim()
+        if (!cleanText) return { ok: false, message: 'Teks jurnal wajib diisi.' }
+
+        const now = new Date().toISOString()
+        set((s) => {
+          const existing = s.teachingJournals.find(
+            (j) => j.teacherId === teacherId && j.classId === classId && j.date === date,
+          )
+          if (existing) {
+            return {
+              teachingJournals: s.teachingJournals.map((j) =>
+                j.id === existing.id
+                  ? {
+                      ...j,
+                      meetingNumber: meeting,
+                      text: cleanText,
+                      updatedAt: now,
+                    }
+                  : j,
+              ),
+            }
+          }
+
+          const entry: TeachingJournal = {
+            id: newId(),
+            teacherId,
+            classId,
+            meetingNumber: meeting,
+            date,
+            text: cleanText,
+            updatedAt: now,
+          }
+          return { teachingJournals: [entry, ...s.teachingJournals] }
+        })
+
+        return { ok: true }
+      },
+
+      updateStudentAssignment: ({ assignmentId, studentId, status, teacherNote }) => {
+        const target = get().studentAssignments.find(
+          (item) => item.assignmentId === assignmentId && item.studentId === studentId,
+        )
+        if (!target) return { ok: false, message: 'Progress tugas siswa tidak ditemukan.' }
+        set((s) => ({
+          studentAssignments: s.studentAssignments.map((item) =>
+            item.id === target.id
+              ? {
+                  ...item,
+                  ...(status !== undefined && { status }),
+                  ...(teacherNote !== undefined && { teacherNote: teacherNote.trim() }),
+                  updatedAt: new Date().toISOString(),
+                }
+              : item,
+          ),
+        }))
+        return { ok: true }
+      },
 
       addStudent: ({
         name,
@@ -336,6 +636,10 @@ export const useDataStore = create<DataState & DataActions>()(
           jabatan: null,
           isPiket: false,
           piketScheduleDays: [],
+          isCompetitionMentor: false,
+          is_walikelas: false,
+          managed_class_id: null,
+          isKokurikulerCoordinator: false,
           profilePhotoDataUrl: null,
         }
         const student: Student = {
@@ -410,11 +714,14 @@ export const useDataStore = create<DataState & DataActions>()(
         set((s) => ({
           students: s.students.filter((x) => x.id !== id),
           users: s.users.filter((u) => u.id !== st.userId),
+          waliKelasNotes: s.waliKelasNotes.filter((n) => n.studentId !== id),
+          studentAssignments: s.studentAssignments.filter((item) => item.studentId !== id),
         }))
       },
 
       importStudentsFromRows: (rows) => {
         const errors: string[] = []
+        const createdUserIds: string[] = []
         let created = 0
         const state = get()
         for (let i = 0; i < rows.length; i++) {
@@ -440,7 +747,7 @@ export const useDataStore = create<DataState & DataActions>()(
             continue
           }
           try {
-            get().addStudent({
+            const { user } = get().addStudent({
               name,
               nisn,
               classId: cls.id,
@@ -451,12 +758,13 @@ export const useDataStore = create<DataState & DataActions>()(
               studentPhone: '',
               gender: 'L',
             })
+            createdUserIds.push(user.id)
             created += 1
           } catch (e) {
             errors.push(`Baris ${i + 2}: ${String(e)}`)
           }
         }
-        return { created, errors }
+        return { created, errors, createdUserIds }
       },
 
       addViolation: (input) => {
@@ -570,6 +878,30 @@ export const useDataStore = create<DataState & DataActions>()(
 
           return { attendance, students, pointHistory }
         })
+      },
+      updateAttendanceByWaliKelas: ({ actorId, studentId, date, period, status }) => {
+        const actor = get().getUserById(actorId)
+        const st = get().getStudentById(studentId)
+        if (!actor || !st) return { ok: false, message: 'Data tidak ditemukan.' }
+        if (status !== 'S' && status !== 'I') {
+          return { ok: false, message: 'Wali kelas hanya bisa mengubah ke Sakit/Izin.' }
+        }
+        if (
+          actor.role !== 'guru_mapel' ||
+          !actor.is_walikelas ||
+          !actor.managed_class_id ||
+          st.classId !== actor.managed_class_id
+        ) {
+          return { ok: false, message: 'Anda bukan wali kelas siswa ini.' }
+        }
+        get().setAttendanceStatus({
+          studentId,
+          teacherId: actorId,
+          date,
+          period,
+          status,
+        })
+        return { ok: true }
       },
       applyQuickViolation: ({ studentId, teacherId, violationId }) => {
         const st = get().getStudentById(studentId)
@@ -787,27 +1119,158 @@ export const useDataStore = create<DataState & DataActions>()(
         })
         return { ok: true }
       },
+
+      addLateArrival: ({ date, studentId, reason, createdByUserId, followUpViolationId }) => {
+        const st = get().getStudentById(studentId)
+        if (!st) return { ok: false, message: 'Siswa tidak ditemukan.' }
+        const stUser = get().getUserById(st.userId)
+        const nisn = stUser?.nisn?.trim()
+        if (!nisn) return { ok: false, message: 'NISN siswa belum terisi (sinkron login).' }
+        const className = get().classes.find((c) => c.id === st.classId)?.name ?? st.classId
+
+        const terlambat = get().violations.find((v) => v.slug === 'terlambat')
+        if (!terlambat) return { ok: false, message: 'Master pelanggaran "terlambat" tidak ditemukan.' }
+        const cleanReason = reason.trim()
+        if (!cleanReason) return { ok: false, message: 'Alasan/keterangan wajib diisi.' }
+
+        const now = new Date().toISOString()
+        const id = newId()
+        const followUpId = followUpViolationId ?? null
+
+        set((s) => {
+          let students = s.students
+          let pointHistory = s.pointHistory
+
+          const applyDeduction = (violationId: string, labelPrefix: string) => {
+            const viol = s.violations.find((v) => v.id === violationId)
+            if (!viol) return
+            const pts = Math.max(1, viol.points)
+            students = students.map((x) =>
+              x.id === studentId ? { ...x, totalPoints: x.totalPoints - pts } : x,
+            )
+            const ph: PointHistory = {
+              id: newId(),
+              studentId,
+              changerId: createdByUserId,
+              pointsChanged: -pts,
+              reason: `${labelPrefix}: ${viol.name} (−${pts} poin) — ${cleanReason}`,
+              timestamp: now,
+              source: 'pelanggaran',
+            }
+            pointHistory = [ph, ...pointHistory]
+          }
+
+          // Sinkron e-poin: keterlambatan selalu memotong poin via master "terlambat"
+          applyDeduction(terlambat.id, `Keterlambatan ${date}`)
+
+          // Tindak lanjut opsional: pelanggaran tambahan yang juga mengurangi poin
+          if (followUpId) applyDeduction(followUpId, `Tindak lanjut ${date}`)
+
+          const entry: LateArrival = {
+            id,
+            date,
+            studentId,
+            nisn,
+            studentName: stUser?.name ?? '—',
+            className,
+            reason: cleanReason,
+            createdByUserId,
+            createdAt: now,
+            followUpViolationId: followUpId,
+          }
+          return {
+            students,
+            pointHistory,
+            lateArrivals: [entry, ...s.lateArrivals],
+          }
+        })
+        return { ok: true, id }
+      },
+
+      addGuestVisit: ({ date, name, position, purpose, createdByUserId }) => {
+        const cleanName = name.trim()
+        if (!cleanName) return { ok: false, message: 'Nama tamu wajib diisi.' }
+        const cleanPos = position.trim()
+        if (!cleanPos) return { ok: false, message: 'Jabatan wajib diisi.' }
+        const cleanPurpose = purpose.trim()
+        if (!cleanPurpose) return { ok: false, message: 'Maksud kunjungan wajib diisi.' }
+        const now = new Date().toISOString()
+        const entry: GuestVisit = {
+          id: newId(),
+          date,
+          name: cleanName,
+          position: cleanPos,
+          purpose: cleanPurpose,
+          createdByUserId,
+          createdAt: now,
+        }
+        set((s) => ({ guestVisits: [entry, ...s.guestVisits] }))
+        return { ok: true, id: entry.id }
+      },
+
+      addKbmLog: ({ date, period, teacherId, classId, note, createdByUserId }) => {
+        const p = Math.floor(period)
+        if (!Number.isFinite(p) || p <= 0) return { ok: false, message: 'Jam ke- harus angka positif.' }
+        const teacher = get().getUserById(teacherId)
+        if (!teacher) return { ok: false, message: 'Guru tidak valid.' }
+        const cls = get().classes.find((c) => c.id === classId)
+        if (!cls) return { ok: false, message: 'Kelas tidak ditemukan.' }
+        const cleanNote = (note ?? '').trim()
+        const now = new Date().toISOString()
+        const entry: KbmLog = {
+          id: newId(),
+          date,
+          period: p,
+          teacherId,
+          teacherName: teacher.name,
+          classId,
+          className: cls.name,
+          note: cleanNote,
+          createdByUserId,
+          createdAt: now,
+        }
+        set((s) => ({ kbmLogs: [entry, ...s.kbmLogs] }))
+        return { ok: true, id: entry.id }
+      },
       upsertCompetition: ({
+        actorId,
         studentId,
         competitionName,
         level,
         mentorTeacherId,
+        quarantineDate,
+        competitionStartDate,
+        competitionEndDate,
         status,
       }) => {
+        const actor = get().getUserById(actorId)
+        if (!actor) return { ok: false, message: 'Pengguna tidak valid.' }
+        if (actor.role !== 'super_admin' && actor.role !== 'kesiswaan') {
+          return { ok: false, message: 'Hanya Super Admin/Kesiswaan yang dapat menugaskan pembimbing.' }
+        }
         const st = get().getStudentById(studentId)
         if (!st) return { ok: false, message: 'Siswa tidak ditemukan.' }
         const teacher = get().getUserById(mentorTeacherId)
-        if (!teacher || teacher.role === 'siswa') {
-          return { ok: false, message: 'Guru pembimbing tidak valid.' }
+        if (!teacher || teacher.role !== 'guru_mapel') {
+          return { ok: false, message: 'Guru pembimbing harus dari role Guru.' }
         }
         const name = competitionName.trim()
         if (!name) return { ok: false, message: 'Nama lomba wajib diisi.' }
+        if (!quarantineDate || !competitionStartDate || !competitionEndDate) {
+          return { ok: false, message: 'Tanggal karantina dan periode lomba wajib diisi.' }
+        }
+        if (competitionEndDate < competitionStartDate) {
+          return { ok: false, message: 'Tanggal selesai lomba tidak boleh sebelum tanggal mulai.' }
+        }
         const entry: CompetitionEntry = {
           id: `${studentId}::${name.toLowerCase()}`,
           studentId,
           competitionName: name,
           level,
           mentorTeacherId,
+          quarantineDate,
+          competitionStartDate,
+          competitionEndDate,
           status,
           updatedAt: new Date().toISOString(),
         }
@@ -835,7 +1298,7 @@ export const useDataStore = create<DataState & DataActions>()(
                   competitionId: entry.id,
                   fromStatus: prevEntry?.status ?? null,
                   toStatus: status,
-                  changedByTeacherId: mentorTeacherId,
+                  changedByTeacherId: actorId,
                   changedAt: entry.updatedAt,
                   note: prevEntry
                     ? `Status diubah dari ${prevEntry.status} ke ${status}`
@@ -844,25 +1307,195 @@ export const useDataStore = create<DataState & DataActions>()(
                 ...s.competitionStatusHistory,
               ]
             : s.competitionStatusHistory
+          return {
+            competitions,
+            students,
+            competitionStatusHistory,
+            users: syncCompetitionMentorFlags(s.users, competitions),
+          }
+        })
+        return { ok: true }
+      },
+      updateCompetitionStatus: ({ actorId, competitionId, status }) => {
+        const actor = get().getUserById(actorId)
+        if (!actor) return { ok: false, message: 'Pengguna tidak valid.' }
+        const target = get().competitions.find((x) => x.id === competitionId)
+        if (!target) return { ok: false, message: 'Data lomba tidak ditemukan.' }
+        const canEdit =
+          actor.role === 'super_admin' ||
+          actor.role === 'kesiswaan' ||
+          (actor.role === 'guru_mapel' &&
+            actor.isCompetitionMentor &&
+            target.mentorTeacherId === actor.id)
+        if (!canEdit) {
+          return { ok: false, message: 'Tidak diizinkan mengubah status lomba ini.' }
+        }
+        const now = new Date().toISOString()
+        set((s) => {
+          const prev = s.competitions.find((x) => x.id === competitionId)
+          if (!prev) return {}
+          const competitions = s.competitions.map((x) =>
+            x.id === competitionId ? { ...x, status, updatedAt: now } : x,
+          )
+          const mappedStatus =
+            (status === 'karantina_lomba'
+              ? 'karantina_lomba'
+              : status === 'sedang_lomba'
+                ? 'lomba'
+                : 'normal') as Student['statusPrestasi']
+          const students = s.students.map((x) =>
+            x.id === prev.studentId ? { ...x, statusPrestasi: mappedStatus } : x,
+          )
+          const competitionStatusHistory =
+            prev.status !== status
+              ? [
+                  {
+                    id: newId(),
+                    studentId: prev.studentId,
+                    competitionId,
+                    fromStatus: prev.status,
+                    toStatus: status,
+                    changedByTeacherId: actorId,
+                    changedAt: now,
+                    note: `Status diubah dari ${prev.status} ke ${status}`,
+                  },
+                  ...s.competitionStatusHistory,
+                ]
+              : s.competitionStatusHistory
           return { competitions, students, competitionStatusHistory }
         })
         return { ok: true }
       },
       deleteCompetition: (id) => {
         const target = get().competitions.find((x) => x.id === id)
+        set((s) => {
+          const competitions = s.competitions.filter((x) => x.id !== id)
+          return {
+            competitions,
+            users: syncCompetitionMentorFlags(s.users, competitions),
+            students: target
+              ? s.students.map((st) =>
+                  st.id === target.studentId ? { ...st, statusPrestasi: 'normal' } : st,
+                )
+              : s.students,
+          }
+        })
+      },
+      upsertWaliKelasNote: ({ actorId, studentId, note }) => {
+        const actor = get().getUserById(actorId)
+        const st = get().getStudentById(studentId)
+        if (!actor || !st) return { ok: false, message: 'Data tidak ditemukan.' }
+        if (
+          actor.role !== 'guru_mapel' ||
+          !actor.is_walikelas ||
+          !actor.managed_class_id ||
+          st.classId !== actor.managed_class_id
+        ) {
+          return { ok: false, message: 'Tidak diizinkan memperbarui catatan pembinaan.' }
+        }
+        const clean = note.trim()
+        if (!clean) return { ok: false, message: 'Catatan pembinaan tidak boleh kosong.' }
+        const now = new Date().toISOString()
+        set((s) => {
+          const existing = s.waliKelasNotes.find(
+            (x) => x.teacherId === actorId && x.studentId === studentId,
+          )
+          if (existing) {
+            return {
+              waliKelasNotes: s.waliKelasNotes.map((x) =>
+                x.id === existing.id ? { ...x, note: clean, updatedAt: now } : x,
+              ),
+            }
+          }
+          return {
+            waliKelasNotes: [
+              { id: newId(), teacherId: actorId, studentId, note: clean, updatedAt: now },
+              ...s.waliKelasNotes,
+            ],
+          }
+        })
+        return { ok: true }
+      },
+      upsertKokurikulerProject: ({
+        actorId,
+        title,
+        description,
+        coordinatorTeacherId,
+        classId,
+        studentIds,
+        startDate,
+        endDate,
+      }) => {
+        const actor = get().getUserById(actorId)
+        if (!actor) return { ok: false, message: 'Pengguna tidak valid.' }
+        if (actor.role !== 'super_admin' && actor.role !== 'kurikulum') {
+          return { ok: false, message: 'Hanya Super Admin/Kurikulum yang dapat membuat projek.' }
+        }
+        const coordinator = get().getUserById(coordinatorTeacherId)
+        if (!coordinator || coordinator.role !== 'guru_mapel' || !coordinator.isKokurikulerCoordinator) {
+          return { ok: false, message: 'Koordinator projek belum ditetapkan.' }
+        }
+        if (!get().classes.some((c) => c.id === classId)) {
+          return { ok: false, message: 'Kelas tidak ditemukan.' }
+        }
+        const selectedStudentIds = Array.from(new Set(studentIds))
+        if (selectedStudentIds.length === 0) {
+          return { ok: false, message: 'Minimal pilih 1 siswa peserta.' }
+        }
+        const cleanTitle = title.trim()
+        if (!cleanTitle) return { ok: false, message: 'Judul projek wajib diisi.' }
+        if (!startDate || !endDate || endDate < startDate) {
+          return { ok: false, message: 'Periode projek tidak valid.' }
+        }
+        const now = new Date().toISOString()
+        const id = `${classId}::${cleanTitle.toLowerCase().replace(/\s+/g, '-')}`
+        const project: KokurikulerProject = {
+          id,
+          title: cleanTitle,
+          description: description.trim(),
+          coordinatorTeacherId,
+          classId,
+          studentIds: selectedStudentIds,
+          startDate,
+          endDate,
+          status: 'rencana',
+          updatedAt: now,
+        }
         set((s) => ({
-          competitions: s.competitions.filter((x) => x.id !== id),
-          students: target
-            ? s.students.map((st) =>
-                st.id === target.studentId ? { ...st, statusPrestasi: 'normal' } : st,
-              )
-            : s.students,
+          kokurikulerProjects: [
+            project,
+            ...s.kokurikulerProjects.filter((x) => x.id !== project.id),
+          ],
+        }))
+        return { ok: true }
+      },
+      updateKokurikulerProjectStatus: ({ actorId, projectId, status }) => {
+        const actor = get().getUserById(actorId)
+        const target = get().kokurikulerProjects.find((x) => x.id === projectId)
+        if (!actor || !target) return { ok: false, message: 'Data projek tidak ditemukan.' }
+        const canEdit =
+          actor.role === 'super_admin' ||
+          actor.role === 'kurikulum' ||
+          (actor.role === 'guru_mapel' &&
+            actor.isKokurikulerCoordinator &&
+            target.coordinatorTeacherId === actor.id)
+        if (!canEdit) return { ok: false, message: 'Tidak diizinkan mengubah status projek.' }
+        set((s) => ({
+          kokurikulerProjects: s.kokurikulerProjects.map((x) =>
+            x.id === projectId ? { ...x, status, updatedAt: new Date().toISOString() } : x,
+          ),
+        }))
+        return { ok: true }
+      },
+      deleteKokurikulerProject: (id) => {
+        set((s) => ({
+          kokurikulerProjects: s.kokurikulerProjects.filter((x) => x.id !== id),
         }))
       },
     }),
     {
       name: 'e-smandel-data',
-      version: 5,
+      version: 13,
       merge: (persisted, current) => {
         const merged = {
           ...(current as DataState & DataActions),
@@ -870,15 +1503,49 @@ export const useDataStore = create<DataState & DataActions>()(
         } as DataState & DataActions
         return {
           ...merged,
-          users: (merged.users ?? []).map((u) => ({
-            ...u,
-            isPiket: !!u.isPiket,
-            piketScheduleDays: u.piketScheduleDays ?? [],
-          })),
+          users: syncCompetitionMentorFlags(
+            (merged.users ?? [])
+              .filter((u) => {
+                const legacyRole = (u as unknown as { role: string }).role
+                return u.id !== 'u7' && legacyRole !== 'guru_pembimbing'
+              })
+              .map((u) => {
+                const legacyRole = (u as unknown as { role: string }).role
+                return {
+                  ...u,
+                  role: legacyRole === 'guru_pembimbing' ? 'guru_mapel' : u.role,
+                  isPiket: !!u.isPiket,
+                  piketScheduleDays: u.piketScheduleDays ?? [],
+                  isCompetitionMentor: !!u.isCompetitionMentor,
+                  is_walikelas: !!u.is_walikelas,
+                  managed_class_id: u.managed_class_id ?? null,
+                  isKokurikulerCoordinator: !!u.isKokurikulerCoordinator,
+                }
+              }),
+            (merged.competitions ?? []).map((c) => ({
+              ...c,
+              quarantineDate: c.quarantineDate ?? c.updatedAt?.slice(0, 10) ?? '',
+              competitionStartDate: c.competitionStartDate ?? c.updatedAt?.slice(0, 10) ?? '',
+              competitionEndDate: c.competitionEndDate ?? c.updatedAt?.slice(0, 10) ?? '',
+            })),
+          ),
+          assignments: merged.assignments ?? [],
+          studentAssignments: merged.studentAssignments ?? [],
+          teachingJournals: merged.teachingJournals ?? [],
           pointRedemptions: merged.pointRedemptions ?? [],
           pointRedemptionRequests: merged.pointRedemptionRequests ?? [],
-          competitions: merged.competitions ?? [],
+          competitions: (merged.competitions ?? []).map((c) => ({
+            ...c,
+            quarantineDate: c.quarantineDate ?? c.updatedAt?.slice(0, 10) ?? '',
+            competitionStartDate: c.competitionStartDate ?? c.updatedAt?.slice(0, 10) ?? '',
+            competitionEndDate: c.competitionEndDate ?? c.updatedAt?.slice(0, 10) ?? '',
+          })),
           competitionStatusHistory: merged.competitionStatusHistory ?? [],
+          waliKelasNotes: merged.waliKelasNotes ?? [],
+          kokurikulerProjects: merged.kokurikulerProjects ?? [],
+          lateArrivals: merged.lateArrivals ?? [],
+          guestVisits: merged.guestVisits ?? [],
+          kbmLogs: merged.kbmLogs ?? [],
           students: (merged.students ?? []).map((st) => ({
             ...st,
             parentName: st.parentName ?? '',
@@ -889,16 +1556,24 @@ export const useDataStore = create<DataState & DataActions>()(
         }
       },
       partialize: (s) => ({
-        users: s.users,
+        users: s.users.map((u) => ({ ...u, password: '' })),
         students: s.students,
         classes: s.classes,
+        assignments: s.assignments,
+        studentAssignments: s.studentAssignments,
+        teachingJournals: s.teachingJournals,
         violations: s.violations,
         attendance: s.attendance,
         pointHistory: s.pointHistory,
         pointRedemptions: s.pointRedemptions,
         pointRedemptionRequests: s.pointRedemptionRequests,
+        lateArrivals: s.lateArrivals,
+        guestVisits: s.guestVisits,
+        kbmLogs: s.kbmLogs,
         competitions: s.competitions,
         competitionStatusHistory: s.competitionStatusHistory,
+        waliKelasNotes: s.waliKelasNotes,
+        kokurikulerProjects: s.kokurikulerProjects,
       }),
     },
     ),

@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { FileUploader } from '../components/ui/FileUploader'
+import { pullWorkspaceFromServer } from '../lib/pullWorkspace'
 import { buildSmsUrl, buildWhatsAppUrl } from '../lib/userDisplay'
+import { flushWorkspacePushNow } from '../lib/workspaceSync'
 import { useAuthStore } from '../store/authStore'
 import { useDataStore } from '../store/dataStore'
 import { useUiStore } from '../store/uiStore'
@@ -49,6 +51,23 @@ export function PenebusanPoinPage() {
     [students, getUserById],
   )
 
+  const myStudent = user ? getStudentByUserId(user.id) : undefined
+  const blockedForStudent = user?.role === 'siswa' && (myStudent?.totalPoints ?? 0) >= 0
+
+  useEffect(() => {
+    void pullWorkspaceFromServer()
+  }, [])
+
+  useEffect(() => {
+    if (blockedForStudent) {
+      showToast(
+        'Penebusan poin tidak bisa diakses karena tidak ada poin pelanggaran.',
+        'info',
+      )
+      navigate('/app', { replace: true })
+    }
+  }, [blockedForStudent, showToast, navigate])
+
   if (!user) return null
 
   const teacherRows = users.filter(
@@ -79,6 +98,7 @@ export function PenebusanPoinPage() {
       showToast(res.message ?? 'Gagal memproses penebusan.', 'error')
       return
     }
+    flushWorkspacePushNow()
     const st = students.find((s) => s.id === studentId)
     const stUser = st ? getUserById(st.userId) : undefined
     if (st && stUser) {
@@ -108,22 +128,11 @@ export function PenebusanPoinPage() {
       showToast(res.message ?? 'Pengajuan gagal.', 'error')
       return
     }
+    flushWorkspacePushNow()
     showToast('Pengajuan penebusan dikirim. Tunggu approval guru pengawas.', 'success')
   }
 
-  const myStudent = getStudentByUserId(user.id)
   const myRequests = pointRedemptionRequests.filter((r) => r.studentId === myStudent?.id)
-  const blockedForStudent = user.role === 'siswa' && (myStudent?.totalPoints ?? 0) >= 0
-
-  useEffect(() => {
-    if (blockedForStudent) {
-      showToast(
-        'Penebusan poin tidak bisa diakses karena tidak ada poin pelanggaran.',
-        'info',
-      )
-      navigate('/app', { replace: true })
-    }
-  }, [blockedForStudent, showToast, navigate])
 
   if (blockedForStudent) {
     return null
@@ -365,6 +374,7 @@ export function PenebusanPoinPage() {
                         proofPhotoDataUrl: proof,
                       })
                       if (res.ok) {
+                        flushWorkspacePushNow()
                         const st = students.find((s) => s.id === req.studentId)
                         const stUser = st ? getUserById(st.userId) : undefined
                         if (st && stUser) {

@@ -28,6 +28,7 @@ export function DashboardPage() {
   const pointHistory = useDataStore((s) => s.pointHistory)
   const getStudentByUserId = useDataStore((s) => s.getStudentByUserId)
   const getClassById = useDataStore((s) => s.getClassById)
+  const attendance = useDataStore((s) => s.attendance)
 
   if (!user) return null
   const activePiket = isPiketActive(user)
@@ -38,6 +39,15 @@ export function DashboardPage() {
 
   const showLiveStats =
     user.role === 'super_admin' || user.role === 'kesiswaan'
+  const managedClassStudents =
+    user.role === 'guru_mapel' && user.is_walikelas && user.managed_class_id
+      ? students.filter((s) => s.classId === user.managed_class_id)
+      : []
+  const today = new Date().toISOString().slice(0, 10)
+  const criticalCount = managedClassStudents.filter((s) => s.totalPoints < 50).length
+  const hadirToday = managedClassStudents.filter((s) =>
+    attendance.some((a) => a.studentId === s.id && a.date === today && a.status === 'H'),
+  ).length
 
   if (user.role === 'siswa') {
     const points = student?.totalPoints ?? 0
@@ -267,6 +277,36 @@ export function DashboardPage() {
               Buka e-Poin
             </Link>
           ) : null}
+          {user.is_walikelas && user.managed_class_id ? (
+            <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+              <p className="text-sm font-semibold text-emerald-900">
+                Anda wali kelas {getClassById(user.managed_class_id)?.name ?? '—'}
+              </p>
+              <p className="mt-1 text-xs text-emerald-800">
+                Siswa terampu: {managedClassStudents.length} • Hadir hari ini: {hadirToday} • Poin kritis (&lt;50): {criticalCount}
+              </p>
+              <Link
+                to="/app/kelas-saya"
+                className="mt-2 inline-flex rounded-lg bg-emerald-700 px-3 py-2 text-xs font-semibold text-white"
+              >
+                Buka Kelas Saya
+              </Link>
+            </div>
+          ) : null}
+          <div className="mt-3 rounded-lg border border-sky-200 bg-sky-50 p-3">
+            <p className="text-sm font-semibold text-sky-900">
+              Modul tugas siap dipakai untuk kelas yang Anda ampu.
+            </p>
+            <p className="mt-1 text-xs text-sky-800">
+              Buat tugas, pantau progres pengumpulan, dan beri catatan singkat per siswa.
+            </p>
+            <Link
+              to="/app/manajemen-tugas"
+              className="mt-2 inline-flex rounded-lg bg-sky-700 px-3 py-2 text-xs font-semibold text-white"
+            >
+              Buka Manajemen Tugas
+            </Link>
+          </div>
         </div>
       ) : null}
       {user.role === 'bk' ? (
