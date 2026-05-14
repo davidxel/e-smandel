@@ -1,5 +1,5 @@
 ---
 deployment:
   tasks:
-    - export DEPLOYPATH=/home/elearn83/repositories/e-smandel
+    - export DEPLOYPATH=/home/elearn83/test.elearningsmkn1tanjungraya.my.id/
     - /bin/cp -R * $DEPLOYPATH
