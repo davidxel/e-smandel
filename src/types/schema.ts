@@ -22,6 +22,8 @@ export type User = {
   is_walikelas: boolean
   /** Kelas yang diampu sebagai wali kelas */
   managed_class_id: string | null
+  /** Daftar kelas/rombel yang diajar (ditetapkan kurikulum) */
+  taught_class_ids: string[]
   /** Flag dinamis: guru menjadi koordinator projek kokurikuler */
   isKokurikulerCoordinator: boolean
   profilePhotoDataUrl: string | null
@@ -31,6 +33,106 @@ export type User = {
 export type AuthUser = Omit<User, 'password'>
 
 export type PrestasiStatus = 'normal' | 'lomba' | 'karantina_lomba'
+
+export type StudentDapodikProfile = {
+  no: string
+  namaLengkap: string
+  nipd: string
+  jk: string
+  nisn: string
+  tempatLahir: string
+  tanggalLahir: string
+  nik: string
+  agama: string
+  alamat: string
+  rt: string
+  rw: string
+  dusun: string
+  kelurahan: string
+  kecamatan: string
+  kodePos: string
+  jenisTinggal: string
+  alatTransportasi: string
+  telepon: string
+  hp: string
+  email: string
+  skhun: string
+  penerimaKps: string
+  nomorKps: string
+  dataAyah: {
+    nama: string
+    tahunLahir: string
+    pendidikan: string
+    pekerjaan: string
+    penghasilan: string
+    nik: string
+  }
+  dataIbu: {
+    nama: string
+    tahunLahir: string
+    pendidikan: string
+    pekerjaan: string
+    penghasilan: string
+    nik: string
+  }
+  dataWali: {
+    nama: string
+    tahunLahir: string
+    pendidikan: string
+    pekerjaan: string
+    penghasilan: string
+    nik: string
+  }
+  rombelSaatIni: string
+  nomorPesertaUjianNasional: string
+  nomorSeriIjazah: string
+  penerimaKip: string
+  nomorKip: string
+  namaDiKip: string
+  nomorKks: string
+  nomorRegistrasiAktaLahir: string
+  bank: string
+  nomorRekeningBank: string
+  rekeningAtasNama: string
+  layakPip: string
+  alasanLayakPip: string
+  kebutuhanKhusus: string
+  sekolahAsal: string
+  anakKeBerapa: string
+  lintang: string
+  bujur: string
+  noKk: string
+  beratBadan: string
+  tinggiBadan: string
+  lingkarKepala: string
+  jumlahSaudaraKandung: string
+  jarakRumahKeSekolahKm: string
+}
+
+export type StudentHealthConditionKey =
+  | 'alergi'
+  | 'tbc'
+  | 'sakit_kuning'
+  | 'hati'
+  | 'jantung'
+  | 'geger_otak'
+  | 'typus'
+  | 'maag'
+  | 'mata'
+  | 'epilepsi'
+  | 'kecelakaan'
+
+export type StudentHealthConditionRecord = {
+  checked: boolean
+  year: string
+}
+
+export type StudentHealthHistory = {
+  conditions: Record<StudentHealthConditionKey, StudentHealthConditionRecord>
+  otherConditionName: string
+  otherConditionChecked: boolean
+  otherConditionYear: string
+}
 
 export type Student = {
   id: string
@@ -42,6 +144,10 @@ export type Student = {
   parentPhone: string
   studentPhone: string
   gender: 'L' | 'P'
+  dapodikProfile?: StudentDapodikProfile | null
+  /** Kolom tambahan impor Dapodik (indeks kolom 0-based → nilai sel), disinkron ke tabel `student_details`. */
+  dapodikExtraColumns?: Record<string, string> | null
+  healthHistory: StudentHealthHistory
 }
 
 export type ClassRoom = {
@@ -154,6 +260,22 @@ export type WaliKelasNote = {
   updatedAt: string
 }
 
+export type EpoinRecommendationStatus = 'pending' | 'approved' | 'rejected'
+
+export type EpoinRecommendation = {
+  id: string
+  studentId: string
+  violationId: string
+  recommenderId: string
+  note: string
+  status: EpoinRecommendationStatus
+  processedBy: string | null
+  processedAt: string | null
+  agreementLetterFileDataUrl: string | null
+  parentStatementFileDataUrl: string | null
+  createdAt: string
+}
+
 export type KokurikulerProjectStatus = 'rencana' | 'berjalan' | 'selesai'
 
 export type KokurikulerProject = {
@@ -260,3 +382,35 @@ export type KbmLog = {
 
 /** @deprecated gunakan PointHistory */
 export type PointLog = PointHistory
+
+/** Status tindak lanjut kasus (dashboard BK & ringkasan wali) */
+export type CounselingCaseStatus = 'perlu_penanganan' | 'sedang_dibimbing' | 'selesai'
+
+export type CounselingSessionType = 'individu' | 'kelompok'
+
+export type SpLevel = 'SP1' | 'SP2' | 'SP3'
+
+/** Log bimbingan konseling (tersimpan di MySQL, bukan workspace JSON) */
+export type CounselingLog = {
+  id: string
+  studentId: string
+  counselorId: string
+  date: string
+  sessionNo: number
+  sessionType: CounselingSessionType
+  analysis: string
+  actionPlan: string
+  status: CounselingCaseStatus
+  attachmentUrl: string | null
+  createdAt: string
+}
+
+export type SpRecord = {
+  id: string
+  studentId: string
+  spLevel: SpLevel
+  issueDate: string
+  fileUrl: string
+  issuedByUserId: string
+  createdAt: string
+}

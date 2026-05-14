@@ -1,13 +1,21 @@
 import { useMemo, useState } from 'react'
 import { ClipboardList, Pencil, Plus, Trash2 } from 'lucide-react'
+import { ModuleTabBar } from '../components/ui/ModuleTabBar'
 import { useAuthStore } from '../store/authStore'
 import { useDataStore } from '../store/dataStore'
 import { useUiStore } from '../store/uiStore'
 import type { StudentAssignmentStatus } from '../types/schema'
 
+type ManajemenTugasTab = 'buat' | 'pantau'
+
+const MT_TABS: { id: ManajemenTugasTab; label: string }[] = [
+  { id: 'buat', label: 'Buat / ubah tugas' },
+  { id: 'pantau', label: 'Daftar & progres siswa' },
+]
+
 const STATUS_OPTIONS: { value: StudentAssignmentStatus; label: string }[] = [
-  { value: 'belum_mengerjakan', label: 'Belum Mengerjakan' },
-  { value: 'sudah_mengerjakan', label: 'Sudah Mengerjakan' },
+  { value: 'belum_mengerjakan', label: 'Belum' },
+  { value: 'sudah_mengerjakan', label: 'Sudah' },
   { value: 'terlambat', label: 'Terlambat' },
 ]
 
@@ -40,6 +48,7 @@ export function ManajemenTugasPage() {
   const [selectedAssignmentId, setSelectedAssignmentId] = useState<string>('')
   const [editingAssignmentId, setEditingAssignmentId] = useState<string | null>(null)
   const [studentSearch, setStudentSearch] = useState('')
+  const [moduleTab, setModuleTab] = useState<ManajemenTugasTab>('buat')
 
   const selectedAssignment =
     teacherAssignments.find((assignment) => assignment.id === selectedAssignmentId) ??
@@ -157,8 +166,12 @@ export function ManajemenTugasPage() {
         <p className="mt-1 text-sm text-slate-600">
           Buat tugas baru, pantau progres satu kelas, dan beri catatan singkat per siswa.
         </p>
+        <div className="mt-4">
+          <ModuleTabBar tabs={MT_TABS} value={moduleTab} onChange={setModuleTab} />
+        </div>
       </div>
 
+      {moduleTab === 'buat' ? (
       <form
         onSubmit={handleCreate}
         className="grid gap-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm md:grid-cols-2"
@@ -252,7 +265,9 @@ export function ManajemenTugasPage() {
           </div>
         </div>
       </form>
+      ) : null}
 
+      {moduleTab === 'pantau' ? (
       <div className="grid gap-4 lg:grid-cols-[340px,1fr]">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-800">
@@ -453,6 +468,7 @@ export function ManajemenTugasPage() {
           )}
         </div>
       </div>
+      ) : null}
     </div>
   )
 }

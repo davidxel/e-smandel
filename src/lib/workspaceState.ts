@@ -55,5 +55,6 @@ export function buildFreshWorkspaceData(): DataState {
     competitionStatusHistory: buildInitialCompetitionStatusHistory(),
     waliKelasNotes: [],
     kokurikulerProjects: [],
+    epoinRecommendations: [],
   }
 }

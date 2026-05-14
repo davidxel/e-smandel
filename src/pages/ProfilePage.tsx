@@ -1,8 +1,9 @@
-import React, { useMemo } from 'react'
+import React, { useMemo, useState } from 'react'
 import QRCode from 'react-qr-code'
 import { IdCard, School } from 'lucide-react'
 import { DataPrivacyNotice } from '../components/legal/DataPrivacyNotice'
 import { FileUploader } from '../components/ui/FileUploader'
+import { ModuleTabBar } from '../components/ui/ModuleTabBar'
 import { useAuthStore } from '../store/authStore'
 import { useDataStore } from '../store/dataStore'
 import { useUiStore } from '../store/uiStore'
@@ -51,6 +52,13 @@ class ProfileQrBoundary extends React.Component<QrBoundaryProps, QrBoundaryState
   }
 }
 
+type ProfileModuleTab = 'kartu' | 'pengaturan'
+
+const PROFILE_TABS: { id: ProfileModuleTab; label: string }[] = [
+  { id: 'kartu', label: 'Kartu identitas' },
+  { id: 'pengaturan', label: 'Foto & identitas' },
+]
+
 export function ProfilePage() {
   const user = useAuthStore((s) => s.user)
   const refreshSessionUser = useAuthStore((s) => s.refreshSessionUser)
@@ -63,6 +71,7 @@ export function ProfilePage() {
   const [editNip, setEditNip] = React.useState('')
   const [editNisn, setEditNisn] = React.useState('')
   const [saving, setSaving] = React.useState(false)
+  const [moduleTab, setModuleTab] = useState<ProfileModuleTab>('kartu')
 
   const student = user ? getStudentByUserId(user.id) : undefined
   const className = student ? getClassById(student.classId)?.name : undefined
@@ -128,8 +137,12 @@ export function ProfilePage() {
           Kartu identitas menampilkan NIP/NISN dan kode QR statis untuk verifikasi
           cepat.
         </p>
+        <div className="mt-4">
+          <ModuleTabBar tabs={PROFILE_TABS} value={moduleTab} onChange={setModuleTab} />
+        </div>
       </div>
 
+      {moduleTab === 'kartu' ? (
       <div className="overflow-hidden rounded-2xl border-2 border-brand-navy/20 bg-gradient-to-br from-brand-navy to-brand-navy-dark p-6 text-white shadow-xl md:p-8">
         <div className="flex flex-col gap-6 md:flex-row md:items-stretch md:justify-between">
           <div className="flex gap-4">
@@ -197,7 +210,10 @@ export function ProfilePage() {
           </div>
         </div>
       </div>
+      ) : null}
 
+      {moduleTab === 'pengaturan' ? (
+        <div className="space-y-8">
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <h3 className="text-sm font-semibold text-slate-800">
           Unggah foto profil
@@ -258,6 +274,8 @@ export function ProfilePage() {
       </form>
 
       <DataPrivacyNotice />
+        </div>
+      ) : null}
     </div>
   )
 }

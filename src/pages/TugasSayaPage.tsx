@@ -1,4 +1,5 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { ModuleTabBar } from '../components/ui/ModuleTabBar'
 import { useAuthStore } from '../store/authStore'
 import { useDataStore } from '../store/dataStore'
 import type { StudentAssignmentStatus } from '../types/schema'
@@ -10,8 +11,8 @@ const STATUS_STYLES: Record<StudentAssignmentStatus, string> = {
 }
 
 const STATUS_LABELS: Record<StudentAssignmentStatus, string> = {
-  belum_mengerjakan: 'Belum Mengerjakan',
-  sudah_mengerjakan: 'Sudah Mengerjakan',
+  belum_mengerjakan: 'Belum',
+  sudah_mengerjakan: 'Sudah',
   terlambat: 'Terlambat',
 }
 
@@ -54,7 +55,22 @@ export function TugasSayaPage() {
     return Array.from(map.entries())
   }, [assignments, classes, student, studentAssignments, users])
 
+  const subjectTabs = useMemo(
+    () => groupedAssignments.map(([subject]) => ({ id: subject, label: subject })),
+    [groupedAssignments],
+  )
+
+  const [subjectTab, setSubjectTab] = useState('')
+
+  useEffect(() => {
+    if (groupedAssignments.length === 0) return
+    const keys = groupedAssignments.map(([s]) => s)
+    if (!keys.includes(subjectTab)) setSubjectTab(keys[0])
+  }, [groupedAssignments, subjectTab])
+
   if (!user || !student) return null
+
+  const activeRows = groupedAssignments.find(([s]) => s === subjectTab)?.[1] ?? []
 
   return (
     <div className="space-y-6">
@@ -63,21 +79,23 @@ export function TugasSayaPage() {
         <p className="mt-1 text-sm text-slate-600">
           Semua tugas Anda ditampilkan per mata pelajaran dengan badge status yang jelas.
         </p>
+        {subjectTabs.length > 0 ? (
+          <div className="mt-4">
+            <ModuleTabBar tabs={subjectTabs} value={subjectTab} onChange={setSubjectTab} />
+          </div>
+        ) : null}
       </div>
 
-      {groupedAssignments.map(([subject, rows]) => (
-        <section
-          key={subject}
-          className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
-        >
+      {subjectTabs.length > 0 ? (
+        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <h2 className="text-lg font-semibold text-slate-800">{subject}</h2>
-              <p className="text-sm text-slate-500">{rows.length} tugas</p>
+              <h2 className="text-lg font-semibold text-slate-800">{subjectTab}</h2>
+              <p className="text-sm text-slate-500">{activeRows.length} tugas</p>
             </div>
           </div>
           <div className="mt-4 grid gap-4 lg:grid-cols-2">
-            {rows.map((row) => (
+            {activeRows.map((row) => (
               <article
                 key={row.item.id}
                 className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
@@ -113,7 +131,7 @@ export function TugasSayaPage() {
             ))}
           </div>
         </section>
-      ))}
+      ) : null}
 
       {groupedAssignments.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-sm text-slate-500">

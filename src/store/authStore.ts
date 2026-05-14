@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { apiRequest, setAccessToken, getAccessToken } from '../lib/api'
 import { pullWorkspaceFromServer } from '../lib/pullWorkspace'
+import { resetWorkspaceRevision } from '../lib/workspaceRevision'
 import type { AuthUser } from '../types/schema'
 import { useDataStore } from './dataStore'
 
@@ -51,6 +52,7 @@ export const useAuthStore = create<AuthState>()(
       },
       logout: () => {
         setAccessToken(null)
+        resetWorkspaceRevision()
         set({ user: null })
       },
       refreshSessionUser: async () => {

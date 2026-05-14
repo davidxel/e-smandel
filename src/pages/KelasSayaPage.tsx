@@ -1,5 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { jsPDF } from 'jspdf'
+import { COUNSELING_STATUS_LABELS } from '../lib/bkCounselingConstants'
+import { canAccessRoute } from '../lib/permissions'
+import { fetchWaliCounselingSummary, type WaliCounselingSummaryRow } from '../lib/counselingApi'
+import { ModuleTabBar } from '../components/ui/ModuleTabBar'
 import { useAuthStore } from '../store/authStore'
 import { useDataStore } from '../store/dataStore'
 import { useUiStore } from '../store/uiStore'
@@ -7,6 +11,8 @@ import { useUiStore } from '../store/uiStore'
 function formatDateTime(ts: string) {
   return new Date(ts).toLocaleString('id-ID')
 }
+
+type KelasSayaTab = 'bk' | 'daftar' | 'detail'
 
 export function KelasSayaPage() {
   const user = useAuthStore((s) => s.user)
@@ -24,11 +30,16 @@ export function KelasSayaPage() {
 
   const actorId = user?.id ?? ''
   const managedClassId = user?.managed_class_id ?? null
+  const taughtClassIds = user?.taught_class_ids ?? []
   const today = new Date().toISOString().slice(0, 10)
+  const canEditWaliTools = !!(user?.is_walikelas && managedClassId)
+  const visibleClassIds = canEditWaliTools
+    ? Array.from(new Set([managedClassId, ...taughtClassIds].filter(Boolean))) as string[]
+    : taughtClassIds
 
   const classStudents = useMemo(
-    () => students.filter((s) => managedClassId && s.classId === managedClassId),
-    [students, managedClassId],
+    () => students.filter((s) => visibleClassIds.includes(s.classId)),
+    [students, visibleClassIds],
   )
 
   const rows = classStudents.map((st) => {
@@ -46,6 +57,43 @@ export function KelasSayaPage() {
   })
 
   const [selectedStudentId, setSelectedStudentId] = useState(rows[0]?.student.id ?? '')
+  const [counselingSummary, setCounselingSummary] = useState<WaliCounselingSummaryRow[]>([])
+  const [moduleTab, setModuleTab] = useState<KelasSayaTab>('daftar')
+
+  const kelasTabs = useMemo(() => {
+    const t: { id: KelasSayaTab; label: string }[] = []
+    if (canEditWaliTools) t.push({ id: 'bk', label: 'Ringkasan BK' })
+    t.push({ id: 'daftar', label: 'Daftar siswa' })
+    t.push({ id: 'detail', label: 'Detail siswa' })
+    return t
+  }, [canEditWaliTools])
+
+  useEffect(() => {
+    if (!canEditWaliTools) {
+      setCounselingSummary([])
+      return
+    }
+    let cancelled = false
+    void fetchWaliCounselingSummary()
+      .then((data) => {
+        if (!cancelled) setCounselingSummary(data)
+      })
+      .catch(() => {
+        if (!cancelled) setCounselingSummary([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [canEditWaliTools])
+
+  useEffect(() => {
+    if (!canEditWaliTools && moduleTab === 'bk') setModuleTab('daftar')
+  }, [canEditWaliTools, moduleTab])
+
+  const counselingLabel = (s: WaliCounselingSummaryRow['counselingStatus']) => {
+    if (s === 'belum_ada') return 'Belum ada riwayat konseling'
+    return COUNSELING_STATUS_LABELS[s]
+  }
   const [noteDraft, setNoteDraft] = useState('')
   const [attendancePatch, setAttendancePatch] = useState<'S' | 'I'>('S')
 
@@ -135,10 +183,25 @@ export function KelasSayaPage() {
     doc.save(`rekap-perkembangan-${selectedStudentName.replace(/\s+/g, '-').toLowerCase()}.pdf`)
   }
 
-  if (!user || user.role !== 'guru_mapel' || !user.is_walikelas || !managedClassId) {
+  if (!user) {
     return (
       <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
-        Fitur Kelas Saya hanya untuk guru yang ditetapkan sebagai wali kelas.
+        Silakan masuk untuk mengakses Kelas Saya.
+      </div>
+    )
+  }
+
+  const isStaffWithClassScope =
+    user.role === 'guru_mapel' ||
+    user.role === 'kesiswaan' ||
+    user.role === 'kepsek' ||
+    user.role === 'kurikulum'
+
+  if (!isStaffWithClassScope || !canAccessRoute(user, 'kelas_saya') || visibleClassIds.length === 0) {
+    return (
+      <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+        Fitur Kelas Saya tersedia jika Anda ditetapkan sebagai wali kelas atau memiliki kelas/rombel
+        yang diampu (guru mapel, kurikulum, kesiswaan, atau kepsek).
       </div>
     )
   }
@@ -148,10 +211,49 @@ export function KelasSayaPage() {
       <div>
         <h1 className="text-xl font-bold text-slate-800 md:text-2xl">Kelas Saya</h1>
         <p className="mt-1 text-sm text-slate-600">
-          Monitoring siswa kelas wali: read-only untuk data terintegrasi, edit hanya catatan pembinaan dan penyesuaian absensi S/I.
+          Monitoring siswa kelas/rombel yang diampu. Edit catatan pembinaan dan koreksi absensi hanya untuk kelas wali.
         </p>
+        <div className="mt-4">
+          <ModuleTabBar tabs={kelasTabs} value={moduleTab} onChange={setModuleTab} />
+        </div>
       </div>
 
+      {moduleTab === 'bk' && canEditWaliTools ? (
+        <div className="rounded-2xl border border-teal-100 bg-gradient-to-r from-teal-50/80 to-sky-50/50 p-5 shadow-sm">
+          <h2 className="text-sm font-semibold text-teal-900">Ringkasan konseling BK (hanya baca)</h2>
+          <p className="mt-1 text-xs text-teal-800/80">
+            Status disinkronkan dari server. Detail analisis hanya diakses Guru BK.
+          </p>
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full min-w-[520px] text-left text-sm">
+              <thead className="text-xs uppercase text-teal-900/70">
+                <tr>
+                  <th className="px-2 py-2">Siswa</th>
+                  <th className="px-2 py-2">Status</th>
+                  <th className="px-2 py-2">Sesi</th>
+                  <th className="px-2 py-2">Terakhir</th>
+                </tr>
+              </thead>
+              <tbody>
+                {counselingSummary.map((c) => {
+                  const name =
+                    rows.find((r) => r.student.id === c.studentId)?.name ?? c.studentId.slice(0, 8)
+                  return (
+                    <tr key={c.studentId} className="border-t border-teal-100/80">
+                      <td className="px-2 py-2 font-medium text-slate-800">{name}</td>
+                      <td className="px-2 py-2 text-slate-700">{counselingLabel(c.counselingStatus)}</td>
+                      <td className="px-2 py-2 text-slate-600">{c.sessionCount}</td>
+                      <td className="px-2 py-2 text-slate-600">{c.lastSessionDate ?? '—'}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : null}
+
+      {moduleTab === 'daftar' ? (
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <h2 className="text-sm font-semibold text-slate-800">Daftar Siswa Kelas Saya</h2>
         <div className="mt-3 overflow-x-auto">
@@ -189,6 +291,7 @@ export function KelasSayaPage() {
                           (n) => n.teacherId === actorId && n.studentId === r.student.id,
                         )
                         setNoteDraft(note?.note ?? '')
+                        setModuleTab('detail')
                       }}
                       className="rounded border border-slate-300 bg-white px-2 py-1 text-xs"
                     >
@@ -201,9 +304,14 @@ export function KelasSayaPage() {
           </table>
         </div>
       </div>
+      ) : null}
 
-      {selectedStudent ? (
-        <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+      {moduleTab === 'detail' ? (
+      <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        {!selectedStudent ? (
+          <p className="text-sm text-slate-500">Pilih siswa dari tab Daftar siswa, lalu klik Detail.</p>
+        ) : (
+        <>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-sm font-semibold text-slate-800">Detail Siswa: {selectedStudentName}</h2>
             <button
@@ -215,48 +323,52 @@ export function KelasSayaPage() {
             </button>
           </div>
 
-          <div>
-            <label className="text-xs font-medium text-slate-600">Catatan Pembinaan Wali Kelas</label>
-            <textarea
-              value={noteDraft}
-              onChange={(e) => setNoteDraft(e.target.value)}
-              className="mt-1 min-h-[84px] w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-              placeholder="Tulis catatan pembinaan untuk siswa ini..."
-            />
-            <div className="mt-2 flex items-center gap-2">
-              <button
-                type="button"
-                onClick={saveNote}
-                className="rounded border border-emerald-400 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700"
-              >
-                Simpan Catatan
-              </button>
-              {selectedNote?.updatedAt ? (
-                <span className="text-xs text-slate-500">Update terakhir: {formatDateTime(selectedNote.updatedAt)}</span>
-              ) : null}
+          {canEditWaliTools ? (
+            <div>
+              <label className="text-xs font-medium text-slate-600">Catatan Pembinaan Wali Kelas</label>
+              <textarea
+                value={noteDraft}
+                onChange={(e) => setNoteDraft(e.target.value)}
+                className="mt-1 min-h-[84px] w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                placeholder="Tulis catatan pembinaan untuk siswa ini..."
+              />
+              <div className="mt-2 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={saveNote}
+                  className="rounded border border-emerald-400 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700"
+                >
+                  Simpan Catatan
+                </button>
+                {selectedNote?.updatedAt ? (
+                  <span className="text-xs text-slate-500">Update terakhir: {formatDateTime(selectedNote.updatedAt)}</span>
+                ) : null}
+              </div>
             </div>
-          </div>
+          ) : null}
 
-          <div className="rounded-xl border border-slate-200 p-3">
-            <p className="text-xs font-medium text-slate-700">Koreksi absensi harian (khusus Sakit/Izin)</p>
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              <select
-                value={attendancePatch}
-                onChange={(e) => setAttendancePatch(e.target.value as 'S' | 'I')}
-                className="rounded border border-slate-300 bg-white px-2 py-1 text-xs"
-              >
-                <option value="S">Sakit (S)</option>
-                <option value="I">Izin (I)</option>
-              </select>
-              <button
-                type="button"
-                onClick={patchAttendance}
-                className="rounded border border-slate-300 bg-white px-3 py-1 text-xs"
-              >
-                Update Absensi Hari Ini
-              </button>
+          {canEditWaliTools ? (
+            <div className="rounded-xl border border-slate-200 p-3">
+              <p className="text-xs font-medium text-slate-700">Koreksi absensi harian (khusus Sakit/Izin)</p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <select
+                  value={attendancePatch}
+                  onChange={(e) => setAttendancePatch(e.target.value as 'S' | 'I')}
+                  className="rounded border border-slate-300 bg-white px-2 py-1 text-xs"
+                >
+                  <option value="S">Sakit (S)</option>
+                  <option value="I">Izin (I)</option>
+                </select>
+                <button
+                  type="button"
+                  onClick={patchAttendance}
+                  className="rounded border border-slate-300 bg-white px-3 py-1 text-xs"
+                >
+                  Update Absensi Hari Ini
+                </button>
+              </div>
             </div>
-          </div>
+          ) : null}
 
           <div className="grid gap-4 lg:grid-cols-3">
             <div className="rounded-xl border border-slate-200 p-3">
@@ -309,7 +421,9 @@ export function KelasSayaPage() {
               </div>
             </div>
           </div>
-        </div>
+        </>
+        )}
+      </div>
       ) : null}
     </div>
   )

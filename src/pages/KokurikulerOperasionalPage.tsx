@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { ModuleTabBar } from '../components/ui/ModuleTabBar'
 import { useAuthStore } from '../store/authStore'
 import { useDataStore } from '../store/dataStore'
 import { useUiStore } from '../store/uiStore'
@@ -9,6 +10,8 @@ const STATUS_LABEL: Record<KokurikulerProjectStatus, string> = {
   berjalan: 'Berjalan',
   selesai: 'Selesai',
 }
+
+type KokurikulerModuleTab = 'rencana' | 'daftar'
 
 export function KokurikulerOperasionalPage() {
   const user = useAuthStore((s) => s.user)
@@ -32,6 +35,7 @@ export function KokurikulerOperasionalPage() {
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [statusDraft, setStatusDraft] = useState<Record<string, KokurikulerProjectStatus>>({})
+  const [moduleTab, setModuleTab] = useState<KokurikulerModuleTab>('daftar')
 
   const coordinatorRows = users.filter((u) => u.role === 'guru_mapel' && u.isKokurikulerCoordinator)
   const classStudents = useMemo(
@@ -45,6 +49,21 @@ export function KokurikulerOperasionalPage() {
     }
     return []
   }, [isPlanner, projects, user])
+
+  const kokurTabs = useMemo(
+    () =>
+      isPlanner
+        ? [
+            { id: 'rencana' as const, label: 'Rencana projek' },
+            { id: 'daftar' as const, label: 'Daftar projek' },
+          ]
+        : [{ id: 'daftar' as const, label: 'Daftar projek' }],
+    [isPlanner],
+  )
+
+  useEffect(() => {
+    if (!isPlanner && moduleTab === 'rencana') setModuleTab('daftar')
+  }, [isPlanner, moduleTab])
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -86,9 +105,14 @@ export function KokurikulerOperasionalPage() {
         <p className="mt-1 text-sm text-slate-600">
           Kelola projek kokurikuler, peserta siswa, koordinator, dan progres pelaksanaan.
         </p>
+        {kokurTabs.length > 1 ? (
+          <div className="mt-4">
+            <ModuleTabBar tabs={kokurTabs} value={moduleTab} onChange={setModuleTab} />
+          </div>
+        ) : null}
       </div>
 
-      {isPlanner ? (
+      {isPlanner && moduleTab === 'rencana' ? (
         <form
           onSubmit={submit}
           className="grid gap-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm md:grid-cols-2"
@@ -194,6 +218,7 @@ export function KokurikulerOperasionalPage() {
         </form>
       ) : null}
 
+      {(!isPlanner || moduleTab === 'daftar') ? (
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <h2 className="text-sm font-semibold text-slate-800">Daftar Projek Kokurikuler</h2>
         <div className="mt-3 overflow-x-auto">
@@ -299,6 +324,7 @@ export function KokurikulerOperasionalPage() {
           </table>
         </div>
       </div>
+      ) : null}
     </div>
   )
 }

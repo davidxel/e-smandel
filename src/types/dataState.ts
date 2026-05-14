@@ -4,6 +4,7 @@ import type {
   ClassRoom,
   CompetitionEntry,
   CompetitionStatusHistory,
+  EpoinRecommendation,
   GuestVisit,
   KbmLog,
   KokurikulerProject,
@@ -38,4 +39,5 @@ export type DataState = {
   competitionStatusHistory: CompetitionStatusHistory[]
   waliKelasNotes: WaliKelasNote[]
   kokurikulerProjects: KokurikulerProject[]
+  epoinRecommendations: EpoinRecommendation[]
 }

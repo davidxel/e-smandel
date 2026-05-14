@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { ModuleTabBar } from '../../components/ui/ModuleTabBar'
 import { useAuthStore } from '../../store/authStore'
 import { useDataStore } from '../../store/dataStore'
 import { useUiStore } from '../../store/uiStore'
@@ -16,6 +17,13 @@ const STATUS_LABEL: Record<CompetitionStatus, string> = {
   sedang_lomba: 'Sedang Berlomba',
   selesai: 'Selesai',
 }
+
+type AdminPembimbingTab = 'tambah' | 'daftar'
+
+const ADMIN_PEMBIMBING_TABS: { id: AdminPembimbingTab; label: string }[] = [
+  { id: 'tambah', label: 'Tambah penugasan' },
+  { id: 'daftar', label: 'Daftar penugasan' },
+]
 
 export function AdminPembimbingLombaPage() {
   const actorId = useAuthStore((s) => s.user?.id ?? '')
@@ -37,6 +45,7 @@ export function AdminPembimbingLombaPage() {
   const [status, setStatus] = useState<CompetitionStatus>('karantina_lomba')
   const [level, setLevel] = useState<CompetitionLevel>('tingkat_sekolah')
   const [note, setNote] = useState('')
+  const [moduleTab, setModuleTab] = useState<AdminPembimbingTab>('tambah')
 
   const mentorRows = users.filter((u) => u.role === 'guru_mapel')
   const studentRows = useMemo(
@@ -84,8 +93,12 @@ export function AdminPembimbingLombaPage() {
         <p className="mt-1 text-sm text-slate-600">
           Pilih guru pembimbing per siswa dan lomba. Guru terpilih otomatis mendapatkan akses fitur Kegiatan Lomba.
         </p>
+        <div className="mt-4">
+          <ModuleTabBar tabs={ADMIN_PEMBIMBING_TABS} value={moduleTab} onChange={setModuleTab} />
+        </div>
       </div>
 
+      {moduleTab === 'tambah' ? (
       <form
         onSubmit={submit}
         className="grid gap-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm md:grid-cols-2"
@@ -208,7 +221,9 @@ export function AdminPembimbingLombaPage() {
           </button>
         </div>
       </form>
+      ) : null}
 
+      {moduleTab === 'daftar' ? (
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <h2 className="text-sm font-semibold text-slate-800">Daftar Penugasan Pembimbing Lomba</h2>
         <div className="mt-3 overflow-x-auto">
@@ -260,6 +275,7 @@ export function AdminPembimbingLombaPage() {
           </table>
         </div>
       </div>
+      ) : null}
     </div>
   )
 }

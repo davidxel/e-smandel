@@ -1,8 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
 import { CalendarDays, History, Save } from 'lucide-react'
+import { ModuleTabBar } from '../components/ui/ModuleTabBar'
 import { useAuthStore } from '../store/authStore'
 import { useDataStore } from '../store/dataStore'
 import { useUiStore } from '../store/uiStore'
+
+type EJurnalTab = 'input' | 'riwayat'
+
+const EJURNAL_TABS: { id: EJurnalTab; label: string }[] = [
+  { id: 'input', label: 'Jurnal hari ini' },
+  { id: 'riwayat', label: 'Riwayat jurnal' },
+]
 
 export function EJurnalPage() {
   const user = useAuthStore((s) => s.user)
@@ -21,6 +29,8 @@ export function EJurnalPage() {
 
   const [meetingNumber, setMeetingNumber] = useState<number>(1)
   const [text, setText] = useState('')
+
+  const [moduleTab, setModuleTab] = useState<EJurnalTab>('input')
 
   const existing = useMemo(() => {
     if (!user || !classId || !date) return undefined
@@ -100,8 +110,13 @@ export function EJurnalPage() {
           Input jurnal mengajar berbasis tanggal dan kelas. Data tersimpan per kombinasi{' '}
           <span className="font-semibold">tanggal + kelas</span>.
         </p>
+        <div className="mt-4">
+          <ModuleTabBar tabs={EJURNAL_TABS} value={moduleTab} onChange={setModuleTab} />
+        </div>
       </div>
 
+      {moduleTab === 'input' ? (
+        <>
       <div className="grid gap-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm md:grid-cols-3">
         <div>
           <label className="flex items-center gap-2 text-xs font-medium text-slate-600">
@@ -185,7 +200,10 @@ export function EJurnalPage() {
           ) : null}
         </div>
       </form>
+        </>
+      ) : null}
 
+      {moduleTab === 'riwayat' ? (
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="flex items-start gap-2">
           <History className="mt-0.5 h-5 w-5 shrink-0 text-slate-500" />
@@ -193,8 +211,8 @@ export function EJurnalPage() {
             <h2 className="text-sm font-semibold text-slate-800">Riwayat jurnal</h2>
             <p className="mt-1 text-xs text-slate-600">
               {classId
-                ? `Entri untuk kelas yang dipilih (${classes.find((c) => c.id === classId)?.name ?? ''}).`
-                : 'Semua entri jurnal Anda (pilih kelas di atas untuk menyaring).'}
+                ? `Entri untuk kelas yang dipilih (${classes.find((c) => c.id === classId)?.name ?? ''}). Ubah kelas di tab Jurnal hari ini.`
+                : 'Semua entri jurnal Anda. Pilih kelas di tab Jurnal hari ini untuk menyaring.'}
             </p>
           </div>
         </div>
@@ -242,6 +260,7 @@ export function EJurnalPage() {
           </div>
         )}
       </div>
+      ) : null}
     </div>
   )
 }

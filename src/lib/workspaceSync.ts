@@ -2,6 +2,13 @@ import { apiRequest, getAccessToken, setAccessToken } from './api'
 import { canSaveWorkspaceOnServer } from './serverPolicy'
 import { useAuthStore } from '../store/authStore'
 import { useDataStore } from '../store/dataStore'
+import { useUiStore } from '../store/uiStore'
+import {
+  getWorkspaceRevisionForPush,
+  resetWorkspaceRevision,
+  setWorkspaceRevisionAfterSave,
+} from './workspaceRevision'
+import { pullWorkspaceFromServer } from './pullWorkspace'
 
 const DEBOUNCE_MS = 1500
 let timer: ReturnType<typeof setTimeout> | null = null
@@ -34,15 +41,40 @@ async function pushWorkspace(): Promise<void> {
   const user = useAuthStore.getState().user
   if (!user || !canSaveWorkspaceOnServer(user.role)) return
   if (!getAccessToken()) return
+  const expectedRevision = getWorkspaceRevisionForPush()
+  if (expectedRevision === null) {
+    await pullWorkspaceFromServer()
+    return
+  }
   const snapshot = buildSnapshot()
   const res = await apiRequest('/api/workspace', {
     method: 'PUT',
-    json: { snapshot },
+    json: { snapshot, expectedRevision },
   })
   if (res.status === 401) {
     setAccessToken(null)
+    resetWorkspaceRevision()
     useAuthStore.setState({ user: null })
     window.location.assign('/')
+    return
+  }
+  if (res.status === 409) {
+    await pullWorkspaceFromServer()
+    useUiStore.getState().showToast(
+      'Data di server sudah diubah orang lain. Tampilan telah disegarkan; silakan ulangi perubahan terakhir Anda.',
+      'error',
+    )
+    return
+  }
+  if (res.ok) {
+    try {
+      const body = (await res.json()) as { revision?: number }
+      if (typeof body.revision === 'number' && Number.isFinite(body.revision)) {
+        setWorkspaceRevisionAfterSave(body.revision)
+      }
+    } catch {
+      /* ignore */
+    }
   }
 }
 

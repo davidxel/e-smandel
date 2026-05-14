@@ -1,7 +1,9 @@
 import bcrypt from 'bcryptjs'
+import { randomUUID } from 'node:crypto'
 import mysql from 'mysql2/promise'
 import type { RowDataPacket } from 'mysql2/promise'
 import { buildFreshWorkspaceData } from '../src/lib/workspaceState.ts'
+import { UNCLASSIFIED_CLASS_ID, UNCLASSIFIED_CLASS_NAME } from '../src/lib/classConstants.ts'
 import type { DataState } from '../src/types/dataState.ts'
 import type { User } from '../src/types/schema.ts'
 
@@ -17,6 +19,40 @@ let pool: mysql.Pool | null = null
 export function getPool(): mysql.Pool {
   if (!pool) throw new Error('Basis data belum diinisialisasi. Panggil initDatabase() dulu.')
   return pool
+}
+
+async function getCurrentDatabase(conn: mysql.PoolConnection): Promise<string> {
+  const [rows] = await conn.query<RowDataPacket[]>('SELECT DATABASE() AS db')
+  const db = String(rows[0]?.db ?? '').trim()
+  if (!db) throw new Error('DATABASE() kosong; pastikan koneksi MySQL memakai database yang benar.')
+  return db
+}
+
+async function columnExists(
+  conn: mysql.PoolConnection,
+  table: string,
+  column: string,
+): Promise<boolean> {
+  const db = await getCurrentDatabase(conn)
+  const [rows] = await conn.query<RowDataPacket[]>(
+    `SELECT 1
+     FROM information_schema.columns
+     WHERE table_schema = ? AND table_name = ? AND column_name = ?
+     LIMIT 1`,
+    [db, table, column],
+  )
+  return rows.length > 0
+}
+
+async function addColumnIfMissing(
+  conn: mysql.PoolConnection,
+  table: string,
+  column: string,
+  ddl: string,
+): Promise<void> {
+  const exists = await columnExists(conn, table, column)
+  if (exists) return
+  await conn.query(`ALTER TABLE \`${table}\` ADD COLUMN ${ddl}`)
 }
 
 function createPoolFromEnv(): mysql.Pool {
@@ -52,9 +88,16 @@ async function migrate(conn: mysql.PoolConnection): Promise<void> {
     CREATE TABLE IF NOT EXISTS workspace (
       id TINYINT UNSIGNED NOT NULL PRIMARY KEY,
       payload LONGTEXT NOT NULL,
+      revision BIGINT UNSIGNED NOT NULL DEFAULT 1,
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `)
+  await addColumnIfMissing(
+    conn,
+    'workspace',
+    'revision',
+    '`revision` BIGINT UNSIGNED NOT NULL DEFAULT 1',
+  )
   await conn.query(`
     CREATE TABLE IF NOT EXISTS point_violations (
       id VARCHAR(64) NOT NULL PRIMARY KEY,
@@ -220,6 +263,7 @@ async function migrate(conn: mysql.PoolConnection): Promise<void> {
       is_competition_mentor TINYINT(1) NOT NULL DEFAULT 0,
       is_walikelas TINYINT(1) NOT NULL DEFAULT 0,
       managed_class_id VARCHAR(64) NULL,
+      taught_class_ids JSON NULL,
       is_kokurikuler_coordinator TINYINT(1) NOT NULL DEFAULT 0,
       profile_photo_data_url LONGTEXT NULL,
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -228,6 +272,7 @@ async function migrate(conn: mysql.PoolConnection): Promise<void> {
       INDEX idx_app_users_nisn (nisn)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `)
+  await addColumnIfMissing(conn, 'app_users', 'taught_class_ids', '`taught_class_ids` JSON NULL')
   await conn.query(`
     CREATE TABLE IF NOT EXISTS students (
       id VARCHAR(64) NOT NULL PRIMARY KEY,
@@ -239,10 +284,34 @@ async function migrate(conn: mysql.PoolConnection): Promise<void> {
       parent_phone VARCHAR(32) NOT NULL DEFAULT '',
       student_phone VARCHAR(32) NOT NULL DEFAULT '',
       gender CHAR(1) NOT NULL DEFAULT 'L',
+      dapodik_profile JSON NULL,
+      health_history JSON NULL,
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       INDEX idx_students_user (user_id),
       INDEX idx_students_class (class_id),
       INDEX idx_students_points (total_points)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `)
+  await addColumnIfMissing(conn, 'students', 'dapodik_profile', '`dapodik_profile` JSON NULL')
+  await addColumnIfMissing(conn, 'students', 'health_history', '`health_history` JSON NULL')
+
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS epoin_recommendations (
+      id VARCHAR(64) NOT NULL PRIMARY KEY,
+      student_id VARCHAR(64) NOT NULL,
+      violation_id VARCHAR(64) NOT NULL,
+      recommender_id VARCHAR(64) NOT NULL,
+      note LONGTEXT NOT NULL,
+      status VARCHAR(16) NOT NULL,
+      processed_by VARCHAR(64) NULL,
+      processed_at DATETIME NULL,
+      agreement_letter_file_data_url LONGTEXT NULL,
+      parent_statement_file_data_url LONGTEXT NULL,
+      created_at DATETIME NOT NULL,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_epoin_rec_student (student_id),
+      INDEX idx_epoin_rec_status (status),
+      INDEX idx_epoin_rec_created_at (created_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `)
   await conn.query(`
@@ -334,6 +403,80 @@ async function migrate(conn: mysql.PoolConnection): Promise<void> {
       INDEX idx_kokurikuler_project_students_student (student_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `)
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS audit_log (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      actor_user_id VARCHAR(64) NOT NULL,
+      action VARCHAR(64) NOT NULL,
+      details JSON NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_audit_log_actor_ts (actor_user_id, created_at),
+      INDEX idx_audit_log_action_ts (action, created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `)
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS counseling_logs (
+      id VARCHAR(64) NOT NULL PRIMARY KEY,
+      student_id VARCHAR(64) NOT NULL,
+      counselor_id VARCHAR(64) NOT NULL,
+      session_date DATE NOT NULL,
+      session_no INT NOT NULL,
+      session_type VARCHAR(16) NOT NULL,
+      analysis LONGTEXT NOT NULL,
+      action_plan LONGTEXT NOT NULL,
+      status VARCHAR(32) NOT NULL,
+      attachment_url LONGTEXT NULL,
+      created_at DATETIME NOT NULL,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_counseling_logs_student_date (student_id, session_date),
+      INDEX idx_counseling_logs_counselor (counselor_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `)
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS sp_records (
+      id VARCHAR(64) NOT NULL PRIMARY KEY,
+      student_id VARCHAR(64) NOT NULL,
+      sp_level VARCHAR(8) NOT NULL,
+      issue_date DATE NOT NULL,
+      file_url LONGTEXT NOT NULL,
+      issued_by_user_id VARCHAR(64) NOT NULL,
+      created_at DATETIME NOT NULL,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_sp_records_student_level (student_id, sp_level),
+      INDEX idx_sp_records_student (student_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `)
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS student_details (
+      student_id VARCHAR(64) NOT NULL PRIMARY KEY,
+      extra_columns JSON NOT NULL,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `)
+
+  const [unclassRows] = await conn.query<RowDataPacket[]>(
+    'SELECT id FROM master_classes WHERE id = ? LIMIT 1',
+    [UNCLASSIFIED_CLASS_ID],
+  )
+  if (unclassRows.length === 0) {
+    await conn.execute('INSERT INTO master_classes (id, name) VALUES (?, ?)', [
+      UNCLASSIFIED_CLASS_ID,
+      UNCLASSIFIED_CLASS_NAME,
+    ])
+  }
+}
+
+export async function appendAuditLog(
+  actorUserId: string,
+  action: string,
+  details: unknown,
+): Promise<void> {
+  const p = getPool()
+  const payload = details === undefined || details === null ? null : JSON.stringify(details)
+  await p.execute(
+    'INSERT INTO audit_log (actor_user_id, action, details) VALUES (?, ?, ?)',
+    [actorUserId, action, payload],
+  )
 }
 
 async function seedIfEmpty(p: mysql.Pool): Promise<void> {
@@ -358,7 +501,7 @@ async function seedIfEmpty(p: mysql.Pool): Promise<void> {
         )
       }
       const payload = JSON.stringify(stripWorkspaceForStorage(fresh))
-      await conn.execute('INSERT INTO workspace (id, payload) VALUES (1, ?)', [payload])
+      await conn.execute('INSERT INTO workspace (id, payload, revision) VALUES (1, ?, 1)', [payload])
       await conn.commit()
     } catch (e) {
       await conn.rollback()
@@ -382,11 +525,21 @@ export async function initDatabase(): Promise<void> {
   await seedIfEmpty(pool)
 }
 
-export async function loadWorkspacePayload(): Promise<DataState> {
+export type WorkspaceSaveResult =
+  | { ok: true; newRevision: number }
+  | { ok: false; conflict: true; currentRevision: number }
+
+export async function loadWorkspacePayload(): Promise<{ state: DataState; revision: number }> {
   const p = getPool()
-  const [rows] = await p.query<RowDataPacket[]>('SELECT payload FROM workspace WHERE id = 1 LIMIT 1')
+  const [rows] = await p.query<RowDataPacket[]>(
+    'SELECT payload, revision FROM workspace WHERE id = 1 LIMIT 1',
+  )
   const raw = rows[0]?.payload
-  if (raw == null) return buildFreshWorkspaceData()
+  const revision =
+    rows[0] != null && rows[0].revision != null && rows[0].revision !== ''
+      ? Number(rows[0].revision)
+      : 0
+  if (raw == null) return { state: buildFreshWorkspaceData(), revision }
   const str = Buffer.isBuffer(raw)
     ? raw.toString('utf8')
     : typeof raw === 'string'
@@ -566,7 +719,7 @@ export async function loadWorkspacePayload(): Promise<DataState> {
   }
 
   const [appUserRows] = await p.query<RowDataPacket[]>(
-    `SELECT id, name, role, nip, nisn, jabatan, is_piket, piket_schedule_days, is_competition_mentor, is_walikelas, managed_class_id, is_kokurikuler_coordinator, profile_photo_data_url
+    `SELECT id, name, role, nip, nisn, jabatan, is_piket, piket_schedule_days, is_competition_mentor, is_walikelas, managed_class_id, taught_class_ids, is_kokurikuler_coordinator, profile_photo_data_url
      FROM app_users ORDER BY name ASC`,
   )
   if (appUserRows.length > 0) {
@@ -585,15 +738,33 @@ export async function loadWorkspacePayload(): Promise<DataState> {
       isCompetitionMentor: Boolean(r.is_competition_mentor),
       is_walikelas: Boolean(r.is_walikelas),
       managed_class_id: r.managed_class_id ? String(r.managed_class_id) : null,
+      taught_class_ids: r.taught_class_ids
+        ? (typeof r.taught_class_ids === 'string'
+            ? JSON.parse(r.taught_class_ids)
+            : r.taught_class_ids)
+        : [],
       isKokurikulerCoordinator: Boolean(r.is_kokurikuler_coordinator),
       profilePhotoDataUrl: r.profile_photo_data_url ? String(r.profile_photo_data_url) : null,
     }))
   }
 
   const [studentRows] = await p.query<RowDataPacket[]>(
-    `SELECT id, user_id, class_id, total_points, status_prestasi, parent_name, parent_phone, student_phone, gender
+    `SELECT id, user_id, class_id, total_points, status_prestasi, parent_name, parent_phone, student_phone, gender, dapodik_profile, health_history
      FROM students ORDER BY id ASC`,
   )
+  const [studentDetailRows] = await p.query<RowDataPacket[]>(
+    'SELECT student_id, extra_columns FROM student_details',
+  )
+  const extraByStudent = new Map<string, Record<string, string>>()
+  for (const dr of studentDetailRows) {
+    const sid = String(dr.student_id)
+    const raw = dr.extra_columns
+    const parsed =
+      typeof raw === 'string'
+        ? (JSON.parse(raw) as Record<string, string>)
+        : (raw as Record<string, string>)
+    if (parsed && typeof parsed === 'object') extraByStudent.set(sid, parsed)
+  }
   if (studentRows.length > 0) {
     ws.students = studentRows.map((r) => ({
       id: String(r.id),
@@ -605,6 +776,60 @@ export async function loadWorkspacePayload(): Promise<DataState> {
       parentPhone: String(r.parent_phone ?? ''),
       studentPhone: String(r.student_phone ?? ''),
       gender: (String(r.gender ?? 'L') === 'P' ? 'P' : 'L') as 'L' | 'P',
+      dapodikProfile: r.dapodik_profile
+        ? (typeof r.dapodik_profile === 'string'
+            ? JSON.parse(r.dapodik_profile)
+            : r.dapodik_profile)
+        : null,
+      dapodikExtraColumns: extraByStudent.get(String(r.id)) ?? null,
+      healthHistory: r.health_history
+        ? (typeof r.health_history === 'string'
+            ? JSON.parse(r.health_history)
+            : r.health_history)
+        : {
+            conditions: {
+              alergi: { checked: false, year: '' },
+              tbc: { checked: false, year: '' },
+              sakit_kuning: { checked: false, year: '' },
+              hati: { checked: false, year: '' },
+              jantung: { checked: false, year: '' },
+              geger_otak: { checked: false, year: '' },
+              typus: { checked: false, year: '' },
+              maag: { checked: false, year: '' },
+              mata: { checked: false, year: '' },
+              epilepsi: { checked: false, year: '' },
+              kecelakaan: { checked: false, year: '' },
+            },
+            otherConditionName: '',
+            otherConditionChecked: false,
+            otherConditionYear: '',
+          },
+    }))
+  }
+
+  const [recRows] = await p.query<RowDataPacket[]>(
+    `SELECT id, student_id, violation_id, recommender_id, note, status, processed_by, processed_at,
+            agreement_letter_file_data_url, parent_statement_file_data_url, created_at
+     FROM epoin_recommendations
+     ORDER BY created_at DESC`,
+  )
+  if (recRows.length > 0) {
+    ws.epoinRecommendations = recRows.map((r) => ({
+      id: String(r.id),
+      studentId: String(r.student_id),
+      violationId: String(r.violation_id),
+      recommenderId: String(r.recommender_id),
+      note: String(r.note ?? ''),
+      status: String(r.status) as DataState['epoinRecommendations'][number]['status'],
+      processedBy: r.processed_by ? String(r.processed_by) : null,
+      processedAt: r.processed_at ? new Date(r.processed_at).toISOString() : null,
+      agreementLetterFileDataUrl: r.agreement_letter_file_data_url
+        ? String(r.agreement_letter_file_data_url)
+        : null,
+      parentStatementFileDataUrl: r.parent_statement_file_data_url
+        ? String(r.parent_statement_file_data_url)
+        : null,
+      createdAt: new Date(r.created_at).toISOString(),
     }))
   }
 
@@ -707,20 +932,30 @@ export async function loadWorkspacePayload(): Promise<DataState> {
     }))
   }
 
-  return ws
+  return { state: ws, revision }
 }
 
-export async function saveWorkspacePayload(payload: DataState): Promise<void> {
+export async function saveWorkspacePayload(
+  payload: DataState,
+  expectedRevision: number,
+): Promise<WorkspaceSaveResult> {
   const p = getPool()
   const json = JSON.stringify(stripWorkspaceForStorage(payload))
   const conn = await p.getConnection()
   try {
     await conn.beginTransaction()
-    await conn.execute(
-      `INSERT INTO workspace (id, payload) VALUES (1, ?)
-       ON DUPLICATE KEY UPDATE payload = VALUES(payload), updated_at = CURRENT_TIMESTAMP`,
-      [json],
+    const [revRows] = await conn.query<RowDataPacket[]>(
+      'SELECT revision FROM workspace WHERE id = 1 FOR UPDATE',
     )
+    const currentRev =
+      revRows.length > 0 && revRows[0].revision != null && revRows[0].revision !== ''
+        ? Number(revRows[0].revision)
+        : 0
+    if (currentRev !== expectedRevision) {
+      await conn.rollback()
+      return { ok: false, conflict: true, currentRevision: currentRev }
+    }
+    const newRev = currentRev + 1
 
     await conn.query('DELETE FROM point_violations')
     for (const v of payload.violations) {
@@ -897,8 +1132,8 @@ export async function saveWorkspacePayload(payload: DataState): Promise<void> {
     for (const u of payload.users) {
       await conn.execute(
         `INSERT INTO app_users
-          (id, name, role, nip, nisn, jabatan, is_piket, piket_schedule_days, is_competition_mentor, is_walikelas, managed_class_id, is_kokurikuler_coordinator, profile_photo_data_url)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          (id, name, role, nip, nisn, jabatan, is_piket, piket_schedule_days, is_competition_mentor, is_walikelas, managed_class_id, taught_class_ids, is_kokurikuler_coordinator, profile_photo_data_url)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           u.id,
           u.name,
@@ -911,18 +1146,20 @@ export async function saveWorkspacePayload(payload: DataState): Promise<void> {
           u.isCompetitionMentor ? 1 : 0,
           u.is_walikelas ? 1 : 0,
           u.managed_class_id,
+          JSON.stringify((u as unknown as { taught_class_ids?: string[] }).taught_class_ids ?? []),
           u.isKokurikulerCoordinator ? 1 : 0,
           u.profilePhotoDataUrl,
         ],
       )
     }
 
+    await conn.query('DELETE FROM student_details')
     await conn.query('DELETE FROM students')
     for (const s of payload.students) {
       await conn.execute(
         `INSERT INTO students
-          (id, user_id, class_id, total_points, status_prestasi, parent_name, parent_phone, student_phone, gender)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          (id, user_id, class_id, total_points, status_prestasi, parent_name, parent_phone, student_phone, gender, dapodik_profile, health_history)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           s.id,
           s.userId,
@@ -933,6 +1170,40 @@ export async function saveWorkspacePayload(payload: DataState): Promise<void> {
           s.parentPhone,
           s.studentPhone,
           s.gender,
+          s.dapodikProfile ? JSON.stringify(s.dapodikProfile) : null,
+          (s as unknown as { healthHistory?: unknown }).healthHistory
+            ? JSON.stringify((s as unknown as { healthHistory: unknown }).healthHistory)
+            : null,
+        ],
+      )
+      const extra = (s as unknown as { dapodikExtraColumns?: Record<string, string> | null })
+        .dapodikExtraColumns
+      if (extra && typeof extra === 'object' && Object.keys(extra).length > 0) {
+        await conn.execute(
+          'INSERT INTO student_details (student_id, extra_columns) VALUES (?, ?)',
+          [s.id, JSON.stringify(extra)],
+        )
+      }
+    }
+
+    await conn.query('DELETE FROM epoin_recommendations')
+    for (const rec of payload.epoinRecommendations ?? []) {
+      await conn.execute(
+        `INSERT INTO epoin_recommendations
+          (id, student_id, violation_id, recommender_id, note, status, processed_by, processed_at, agreement_letter_file_data_url, parent_statement_file_data_url, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          rec.id,
+          rec.studentId,
+          rec.violationId,
+          rec.recommenderId,
+          rec.note ?? '',
+          rec.status,
+          rec.processedBy,
+          rec.processedAt ? rec.processedAt.slice(0, 19).replace('T', ' ') : null,
+          rec.agreementLetterFileDataUrl,
+          rec.parentStatementFileDataUrl,
+          rec.createdAt.slice(0, 19).replace('T', ' '),
         ],
       )
     }
@@ -1029,7 +1300,14 @@ export async function saveWorkspacePayload(payload: DataState): Promise<void> {
       )
     }
 
+    await conn.execute(
+      `INSERT INTO workspace (id, payload, revision) VALUES (1, ?, ?)
+       ON DUPLICATE KEY UPDATE payload = VALUES(payload), revision = VALUES(revision), updated_at = CURRENT_TIMESTAMP`,
+      [json, newRev],
+    )
+
     await conn.commit()
+    return { ok: true, newRevision: newRev }
   } catch (e) {
     await conn.rollback()
     throw e
@@ -1066,7 +1344,7 @@ export async function upsertPasswordHash(user: User, plain: string): Promise<voi
 
 export async function ensureAuthRowsForUsers(users: User[]): Promise<void> {
   const p = getPool()
-  const defaultFor = (u: User) => (u.role === 'siswa' ? 'siswa123' : 'demo123')
+  const defaultFor = (u: User) => (u.role === 'siswa' ? 'siswa123' : 'demo1234')
   const ids = users.map((u) => u.id)
   if (ids.length === 0) return
   const placeholders = ids.map(() => '?').join(',')
@@ -1088,4 +1366,248 @@ export async function pruneAuthUsers(validIds: Set<string>): Promise<void> {
   if (ids.length === 0) return
   const placeholders = ids.map(() => '?').join(',')
   await p.execute(`DELETE FROM user_auth WHERE user_id NOT IN (${placeholders})`, ids)
+}
+
+export type CounselingSnapshot = {
+  lastStatus: string | null
+  lastSessionDate: string | null
+  sessionCount: number
+}
+
+/** Ringkasan log konseling per siswa (untuk dashboard & wali) */
+export async function getCounselingSnapshotsByStudentIds(
+  studentIds: string[],
+): Promise<Map<string, CounselingSnapshot>> {
+  const map = new Map<string, CounselingSnapshot>()
+  for (const id of studentIds) {
+    map.set(id, { lastStatus: null, lastSessionDate: null, sessionCount: 0 })
+  }
+  if (studentIds.length === 0) return map
+  const p = getPool()
+  const ph = studentIds.map(() => '?').join(',')
+  const [countRows] = await p.query<RowDataPacket[]>(
+    `SELECT student_id, COUNT(*) AS c FROM counseling_logs WHERE student_id IN (${ph}) GROUP BY student_id`,
+    studentIds,
+  )
+  for (const r of countRows) {
+    const sid = String(r.student_id)
+    const prev = map.get(sid)
+    if (prev) prev.sessionCount = Number(r.c)
+  }
+  const [latestRows] = await p.query<RowDataPacket[]>(
+    `SELECT t.student_id, t.status, t.session_date
+     FROM (
+       SELECT student_id, status, session_date,
+         ROW_NUMBER() OVER (
+           PARTITION BY student_id ORDER BY session_date DESC, session_no DESC, created_at DESC
+         ) AS rn
+       FROM counseling_logs
+       WHERE student_id IN (${ph})
+     ) t WHERE t.rn = 1`,
+    studentIds,
+  )
+  for (const r of latestRows) {
+    const sid = String(r.student_id)
+    const prev = map.get(sid)
+    if (prev) {
+      prev.lastStatus = String(r.status)
+      prev.lastSessionDate = r.session_date
+        ? new Date(r.session_date).toISOString().slice(0, 10)
+        : null
+    }
+  }
+  return map
+}
+
+function mapCounselingRow(r: RowDataPacket) {
+  return {
+    id: String(r.id),
+    studentId: String(r.student_id),
+    counselorId: String(r.counselor_id),
+    date: new Date(r.session_date).toISOString().slice(0, 10),
+    sessionNo: Number(r.session_no),
+    sessionType: String(r.session_type) as 'individu' | 'kelompok',
+    analysis: String(r.analysis),
+    actionPlan: String(r.action_plan),
+    status: String(r.status) as 'perlu_penanganan' | 'sedang_dibimbing' | 'selesai',
+    attachmentUrl: r.attachment_url ? String(r.attachment_url) : null,
+    createdAt: new Date(r.created_at).toISOString(),
+  }
+}
+
+export async function listCounselingLogsForStudent(studentId: string) {
+  const p = getPool()
+  const [rows] = await p.query<RowDataPacket[]>(
+    `SELECT id, student_id, counselor_id, session_date, session_no, session_type, analysis, action_plan, status, attachment_url, created_at
+     FROM counseling_logs WHERE student_id = ?
+     ORDER BY session_date DESC, session_no DESC, created_at DESC`,
+    [studentId],
+  )
+  return rows.map(mapCounselingRow)
+}
+
+export async function getNextCounselingSessionNo(studentId: string): Promise<number> {
+  const p = getPool()
+  const [rows] = await p.query<RowDataPacket[]>(
+    'SELECT COALESCE(MAX(session_no), 0) + 1 AS n FROM counseling_logs WHERE student_id = ?',
+    [studentId],
+  )
+  return Number(rows[0]?.n ?? 1)
+}
+
+export async function insertCounselingLogRow(input: {
+  studentId: string
+  counselorId: string
+  sessionDate: string
+  sessionNo?: number
+  sessionType: string
+  analysis: string
+  actionPlan: string
+  status: string
+  attachmentUrl: string | null
+}) {
+  const p = getPool()
+  const id = randomUUID()
+  const sessionNo =
+    input.sessionNo !== undefined && input.sessionNo !== null
+      ? Number(input.sessionNo)
+      : await getNextCounselingSessionNo(input.studentId)
+  await p.execute(
+    `INSERT INTO counseling_logs
+      (id, student_id, counselor_id, session_date, session_no, session_type, analysis, action_plan, status, attachment_url, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+    [
+      id,
+      input.studentId,
+      input.counselorId,
+      input.sessionDate.slice(0, 10),
+      sessionNo,
+      input.sessionType,
+      input.analysis,
+      input.actionPlan,
+      input.status,
+      input.attachmentUrl,
+    ],
+  )
+  const [rows] = await p.query<RowDataPacket[]>(
+    `SELECT id, student_id, counselor_id, session_date, session_no, session_type, analysis, action_plan, status, attachment_url, created_at
+     FROM counseling_logs WHERE id = ? LIMIT 1`,
+    [id],
+  )
+  return mapCounselingRow(rows[0])
+}
+
+export async function updateCounselingLogRow(
+  logId: string,
+  counselorId: string,
+  patch: {
+    sessionDate?: string
+    sessionType?: string
+    analysis?: string
+    actionPlan?: string
+    status?: string
+    attachmentUrl?: string | null
+  },
+  opts?: { bypassCounselorCheck?: boolean },
+): Promise<ReturnType<typeof mapCounselingRow> | null> {
+  const p = getPool()
+  const [check] = await p.query<RowDataPacket[]>(
+    'SELECT counselor_id FROM counseling_logs WHERE id = ? LIMIT 1',
+    [logId],
+  )
+  if (!check[0]) return null
+  if (!opts?.bypassCounselorCheck && String(check[0].counselor_id) !== counselorId) return null
+  const sets: string[] = []
+  const vals: unknown[] = []
+  if (patch.sessionDate !== undefined) {
+    sets.push('session_date = ?')
+    vals.push(patch.sessionDate.slice(0, 10))
+  }
+  if (patch.sessionType !== undefined) {
+    sets.push('session_type = ?')
+    vals.push(patch.sessionType)
+  }
+  if (patch.analysis !== undefined) {
+    sets.push('analysis = ?')
+    vals.push(patch.analysis)
+  }
+  if (patch.actionPlan !== undefined) {
+    sets.push('action_plan = ?')
+    vals.push(patch.actionPlan)
+  }
+  if (patch.status !== undefined) {
+    sets.push('status = ?')
+    vals.push(patch.status)
+  }
+  if (patch.attachmentUrl !== undefined) {
+    sets.push('attachment_url = ?')
+    vals.push(patch.attachmentUrl)
+  }
+  if (sets.length === 0) {
+    const [rows] = await p.query<RowDataPacket[]>(
+      `SELECT id, student_id, counselor_id, session_date, session_no, session_type, analysis, action_plan, status, attachment_url, created_at
+       FROM counseling_logs WHERE id = ? LIMIT 1`,
+      [logId],
+    )
+    return rows[0] ? mapCounselingRow(rows[0]) : null
+  }
+  vals.push(logId)
+  await p.execute(`UPDATE counseling_logs SET ${sets.join(', ')} WHERE id = ?`, vals)
+  const [rows] = await p.query<RowDataPacket[]>(
+    `SELECT id, student_id, counselor_id, session_date, session_no, session_type, analysis, action_plan, status, attachment_url, created_at
+     FROM counseling_logs WHERE id = ? LIMIT 1`,
+    [logId],
+  )
+  return rows[0] ? mapCounselingRow(rows[0]) : null
+}
+
+export async function listSpRecordsForStudent(studentId: string) {
+  const p = getPool()
+  const [rows] = await p.query<RowDataPacket[]>(
+    `SELECT id, student_id, sp_level, issue_date, file_url, issued_by_user_id, created_at
+     FROM sp_records WHERE student_id = ? ORDER BY issue_date DESC, sp_level ASC`,
+    [studentId],
+  )
+  return rows.map((r) => ({
+    id: String(r.id),
+    studentId: String(r.student_id),
+    spLevel: String(r.sp_level) as 'SP1' | 'SP2' | 'SP3',
+    issueDate: new Date(r.issue_date).toISOString().slice(0, 10),
+    fileUrl: String(r.file_url),
+    issuedByUserId: String(r.issued_by_user_id),
+    createdAt: new Date(r.created_at).toISOString(),
+  }))
+}
+
+export async function upsertSpRecordRow(input: {
+  studentId: string
+  spLevel: string
+  issueDate: string
+  fileUrl: string
+  issuedByUserId: string
+}) {
+  const p = getPool()
+  const id = randomUUID()
+  await p.execute(
+    `INSERT INTO sp_records (id, student_id, sp_level, issue_date, file_url, issued_by_user_id, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, NOW())
+     ON DUPLICATE KEY UPDATE issue_date = VALUES(issue_date), file_url = VALUES(file_url), issued_by_user_id = VALUES(issued_by_user_id)`,
+    [id, input.studentId, input.spLevel, input.issueDate.slice(0, 10), input.fileUrl, input.issuedByUserId],
+  )
+  const [rows] = await p.query<RowDataPacket[]>(
+    `SELECT id, student_id, sp_level, issue_date, file_url, issued_by_user_id, created_at
+     FROM sp_records WHERE student_id = ? AND sp_level = ? LIMIT 1`,
+    [input.studentId, input.spLevel],
+  )
+  const r = rows[0]
+  if (!r) throw new Error('sp_records upsert failed')
+  return {
+    id: String(r.id),
+    studentId: String(r.student_id),
+    spLevel: String(r.sp_level) as 'SP1' | 'SP2' | 'SP3',
+    issueDate: new Date(r.issue_date).toISOString().slice(0, 10),
+    fileUrl: String(r.file_url),
+    issuedByUserId: String(r.issued_by_user_id),
+    createdAt: new Date(r.created_at).toISOString(),
+  }
 }

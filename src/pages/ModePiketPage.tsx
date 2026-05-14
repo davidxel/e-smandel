@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { ModuleTabBar } from '../components/ui/ModuleTabBar'
 import { FileUploader } from '../components/ui/FileUploader'
 import { pullWorkspaceFromServer } from '../lib/pullWorkspace'
 import { buildSmsUrl, buildWhatsAppUrl } from '../lib/userDisplay'
@@ -8,6 +9,17 @@ import { useDataStore } from '../store/dataStore'
 import { useUiStore } from '../store/uiStore'
 
 const QUICK_ACTIVITY = ['Kerja Bakti', 'Literasi Perpustakaan', 'Bersih Musholla']
+
+type EpoinModuleTab = 'pelanggaran' | 'keterlambatan' | 'tamu' | 'kbm' | 'poin' | 'rekap'
+
+const EPOIN_TABS: { id: EpoinModuleTab; label: string }[] = [
+  { id: 'pelanggaran', label: 'Pelanggaran & inbox' },
+  { id: 'keterlambatan', label: 'Keterlambatan' },
+  { id: 'tamu', label: 'Tamu sekolah' },
+  { id: 'kbm', label: 'Log KBM' },
+  { id: 'poin', label: 'Poin & penebusan' },
+  { id: 'rekap', label: 'Rekap absensi' },
+]
 
 export function ModePiketPage() {
   const user = useAuthStore((s) => s.user)
@@ -20,22 +32,26 @@ export function ModePiketPage() {
   const getUserById = useDataStore((s) => s.getUserById)
   const applyQuickViolation = useDataStore((s) => s.applyQuickViolation)
   const redeemStudentPoints = useDataStore((s) => s.redeemStudentPoints)
-  const addAchievementPoints = useDataStore((s) => s.addAchievementPoints)
   const addLateArrival = useDataStore((s) => s.addLateArrival)
   const lateArrivals = useDataStore((s) => s.lateArrivals)
   const addGuestVisit = useDataStore((s) => s.addGuestVisit)
   const guestVisits = useDataStore((s) => s.guestVisits)
   const addKbmLog = useDataStore((s) => s.addKbmLog)
   const kbmLogs = useDataStore((s) => s.kbmLogs)
+  const epoinRecommendations = useDataStore((s) => s.epoinRecommendations)
+  const submitEpoinRecommendation = useDataStore((s) => s.submitEpoinRecommendation)
+  const processEpoinRecommendation = useDataStore((s) => s.processEpoinRecommendation)
   const [studentViolation, setStudentViolation] = useState('')
   const [violationId, setViolationId] = useState('')
+  const [recommendationNote, setRecommendationNote] = useState('')
+  const [selectedRecommendationId, setSelectedRecommendationId] = useState('')
+  const [followUpNote, setFollowUpNote] = useState('')
+  const [agreementLetter, setAgreementLetter] = useState('')
+  const [parentLetter, setParentLetter] = useState('')
   const [studentRedeem, setStudentRedeem] = useState('')
   const [activityType, setActivityType] = useState(QUICK_ACTIVITY[0])
   const [pointsRestore, setPointsRestore] = useState(5)
   const [proof, setProof] = useState('')
-  const [studentPrestasi, setStudentPrestasi] = useState('')
-  const [prestasiPoints, setPrestasiPoints] = useState(5)
-  const [prestasiReason, setPrestasiReason] = useState('')
   const [lateStudentId, setLateStudentId] = useState('')
   const [lateReason, setLateReason] = useState('')
   const [lateFollowUpViolationId, setLateFollowUpViolationId] = useState('')
@@ -52,6 +68,7 @@ export function ModePiketPage() {
     title: string
   } | null>(null)
   const [date] = useState(new Date().toISOString().slice(0, 10))
+  const [moduleTab, setModuleTab] = useState<EpoinModuleTab>('pelanggaran')
 
   useEffect(() => {
     void pullWorkspaceFromServer()
@@ -119,9 +136,22 @@ export function ModePiketPage() {
   }, [notPresentByStudent])
 
   if (!user) return null
+  const canDirectPointAction =
+    user.role === 'super_admin' || user.role === 'bk' || user.role === 'kesiswaan'
+  const selectedRecommendation = epoinRecommendations.find((x) => x.id === selectedRecommendationId)
+  const selectedRecommendationStudent = selectedRecommendation
+    ? students.find((s) => s.id === selectedRecommendation.studentId)
+    : undefined
+  const selectedRecommendationStudentUser = selectedRecommendationStudent
+    ? getUserById(selectedRecommendationStudent.userId)
+    : undefined
 
   const submitQuickViolation = (e: React.FormEvent) => {
     e.preventDefault()
+    if (!canDirectPointAction) {
+      showToast('Akun guru mengajukan rekomendasi ke BK/Kesiswaan.', 'error')
+      return
+    }
     const selected = violationId || terlambat?.id
     if (!studentViolation || !selected) {
       showToast('Pilih siswa dan pelanggaran.', 'error')
@@ -146,6 +176,30 @@ export function ModePiketPage() {
       }
     }
     showToast(res.ok ? 'Pelanggaran tercatat dan poin terpotong.' : res.message ?? 'Gagal.', res.ok ? 'success' : 'error')
+  }
+
+  const submitRecommendation = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!studentViolation || !violationId) {
+      showToast('Pilih siswa dan pelanggaran yang direkomendasikan.', 'error')
+      return
+    }
+    const res = submitEpoinRecommendation({
+      studentId: studentViolation,
+      recommenderId: user.id,
+      violationId,
+      note: recommendationNote,
+    })
+    showToast(
+      res.ok ? 'Rekomendasi pelanggaran dikirim ke BK/Kesiswaan.' : res.message ?? 'Gagal kirim rekomendasi.',
+      res.ok ? 'success' : 'error',
+    )
+    if (res.ok) {
+      setRecommendationNote('')
+      setStudentViolation('')
+      setViolationId('')
+      flushWorkspacePushNow()
+    }
   }
 
   const submitRedemption = (e: React.FormEvent) => {
@@ -174,36 +228,6 @@ export function ModePiketPage() {
       }
     }
     showToast(res.ok ? 'Penebusan disetujui.' : res.message ?? 'Gagal.', res.ok ? 'success' : 'error')
-  }
-
-  const submitPrestasi = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!studentPrestasi) {
-      showToast('Pilih siswa untuk poin prestasi.', 'error')
-      return
-    }
-    const res = addAchievementPoints({
-      studentId: studentPrestasi,
-      teacherId: user.id,
-      points: prestasiPoints,
-      reason: prestasiReason || 'Pencapaian prestasi siswa',
-    })
-    if (res.ok) {
-      flushWorkspacePushNow()
-      const st = students.find((s) => s.id === studentPrestasi)
-      const stUser = st ? getUserById(st.userId) : undefined
-      if (st && stUser) {
-        setNotifPayload({
-          phone: st.parentPhone,
-          message: `Notifikasi e-Smandel: ${stUser.name} mendapat poin prestasi (+${prestasiPoints}) karena ${prestasiReason || 'pencapaian prestasi'}.`,
-          title: 'Validasi Notifikasi Prestasi',
-        })
-      }
-    }
-    showToast(
-      res.ok ? 'Poin prestasi berhasil ditambahkan.' : res.message ?? 'Gagal memproses prestasi.',
-      res.ok ? 'success' : 'error',
-    )
   }
 
   const submitLateArrival = (e: React.FormEvent) => {
@@ -274,10 +298,13 @@ export function ModePiketPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-xl font-bold text-slate-800 md:text-2xl">e-Piket</h1>
+        <h1 className="text-xl font-bold text-slate-800 md:text-2xl">e-Poin</h1>
         <p className="mt-1 text-sm text-slate-600">
           Piket: keterlambatan (sinkron e-Poin), pelanggaran cepat, daftar tamu, log KBM, dan rekap absen global harian.
         </p>
+        <div className="mt-4">
+          <ModuleTabBar tabs={EPOIN_TABS} value={moduleTab} onChange={setModuleTab} />
+        </div>
       </div>
       {notifPayload ? (
         <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4">
@@ -318,6 +345,9 @@ export function ModePiketPage() {
           </div>
         </div>
       ) : null}
+      {moduleTab === 'pelanggaran' ? (
+        <>
+      {canDirectPointAction ? (
       <form onSubmit={submitQuickViolation} className="grid gap-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <h2 className="text-sm font-semibold text-slate-800">Input Pelanggaran Cepat</h2>
         <div className="grid gap-4 md:grid-cols-2">
@@ -336,7 +366,172 @@ export function ModePiketPage() {
         </div>
         <button className="w-fit rounded-lg bg-brand-navy px-4 py-2 text-sm font-semibold text-white" type="submit">Catat Pelanggaran</button>
       </form>
+      ) : (
+        <form onSubmit={submitRecommendation} className="grid gap-4 rounded-2xl border border-indigo-200 bg-indigo-50/30 p-6 shadow-sm">
+          <h2 className="text-sm font-semibold text-slate-800">Pengajuan Rekomendasi Pelanggaran (untuk BK/Kesiswaan)</h2>
+          <div className="grid gap-4 md:grid-cols-2">
+            <select value={studentViolation} onChange={(e) => setStudentViolation(e.target.value)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm">
+              <option value="">— Pilih siswa —</option>
+              {rows.map((r) => (
+                <option key={r.id} value={r.id}>{r.name} ({r.className})</option>
+              ))}
+            </select>
+            <select value={violationId} onChange={(e) => setViolationId(e.target.value)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm">
+              <option value="">— Pilih pelanggaran —</option>
+              {violations.map((v) => (
+                <option key={v.id} value={v.id}>{v.name} (-{v.points})</option>
+              ))}
+            </select>
+          </div>
+          <textarea
+            value={recommendationNote}
+            onChange={(e) => setRecommendationNote(e.target.value)}
+            rows={3}
+            className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            placeholder="Catatan kronologi/rekomendasi guru (opsional)"
+          />
+          <button className="w-fit rounded-lg bg-indigo-700 px-4 py-2 text-sm font-semibold text-white" type="submit">Kirim ke BK</button>
+        </form>
+      )}
 
+      {(canDirectPointAction || user.role === 'guru_mapel' || user.role === 'guru_piket') ? (
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <h2 className="text-sm font-semibold text-slate-800">Inbox Rekomendasi e-Poin</h2>
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full min-w-[860px] text-left text-sm">
+              <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                <tr>
+                  <th className="px-3 py-2">Siswa</th>
+                  <th className="px-3 py-2">Pelanggaran</th>
+                  <th className="px-3 py-2">Pengaju</th>
+                  <th className="px-3 py-2">Catatan</th>
+                  <th className="px-3 py-2">Status</th>
+                  <th className="px-3 py-2">Aksi</th>
+                </tr>
+              </thead>
+              <tbody>
+                {epoinRecommendations.map((rec) => {
+                  const st = students.find((s) => s.id === rec.studentId)
+                  const stuName = st ? getUserById(st.userId)?.name : '—'
+                  const violName = violations.find((v) => v.id === rec.violationId)?.name ?? rec.violationId
+                  const recommenderName = getUserById(rec.recommenderId)?.name ?? rec.recommenderId
+                  return (
+                    <tr key={rec.id} className="border-t border-slate-100">
+                      <td className="px-3 py-2">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedRecommendationId(rec.id)}
+                          className="text-left text-sm text-brand-navy underline decoration-dotted underline-offset-2"
+                        >
+                          {stuName}
+                        </button>
+                      </td>
+                      <td className="px-3 py-2">{violName}</td>
+                      <td className="px-3 py-2">{recommenderName}</td>
+                      <td className="px-3 py-2 text-xs text-slate-600">{rec.note || '—'}</td>
+                      <td className="px-3 py-2 text-xs font-semibold">{rec.status}</td>
+                      <td className="px-3 py-2">
+                        {canDirectPointAction && rec.status === 'pending' ? (
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const r = processEpoinRecommendation({
+                                  recommendationId: rec.id,
+                                  processorId: user.id,
+                                  action: 'approved',
+                                  note: followUpNote,
+                                  agreementLetterFileDataUrl: agreementLetter || null,
+                                  parentStatementFileDataUrl: parentLetter || null,
+                                })
+                                showToast(r.ok ? 'Rekomendasi diproses dan poin diberikan.' : r.message ?? 'Gagal.', r.ok ? 'success' : 'error')
+                                if (r.ok) {
+                                  setFollowUpNote('')
+                                  setAgreementLetter('')
+                                  setParentLetter('')
+                                }
+                              }}
+                              className="rounded border border-emerald-300 bg-emerald-50 px-2 py-1 text-xs text-emerald-700"
+                            >
+                              Beri Poin
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const r = processEpoinRecommendation({
+                                  recommendationId: rec.id,
+                                  processorId: user.id,
+                                  action: 'rejected',
+                                  note: followUpNote,
+                                })
+                                showToast(r.ok ? 'Rekomendasi ditolak.' : r.message ?? 'Gagal.', r.ok ? 'info' : 'error')
+                                if (r.ok) {
+                                  setFollowUpNote('')
+                                }
+                              }}
+                              className="rounded border border-red-300 bg-red-50 px-2 py-1 text-xs text-red-700"
+                            >
+                              Tolak
+                            </button>
+                          </div>
+                        ) : (
+                          '—'
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+                {epoinRecommendations.length === 0 ? (
+                  <tr>
+                    <td className="px-3 py-3 text-xs text-slate-500" colSpan={6}>
+                      Belum ada pengajuan rekomendasi e-poin.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+          {selectedRecommendation ? (
+            <div className="mt-4 rounded-xl border border-indigo-200 bg-indigo-50/40 p-4">
+              <p className="text-sm font-semibold text-indigo-900">Detail siswa & tindak lanjut BK</p>
+              <p className="mt-1 text-xs text-indigo-800">
+                Siswa: {selectedRecommendationStudentUser?.name ?? '—'} | NISN: {selectedRecommendationStudentUser?.nisn ?? '—'} | WA orang tua: {selectedRecommendationStudent?.parentPhone || '—'}
+              </p>
+              <textarea
+                value={followUpNote}
+                onChange={(e) => setFollowUpNote(e.target.value)}
+                rows={3}
+                placeholder="Catatan tindak lanjut BK/Kesiswaan"
+                className="mt-3 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+              />
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                <FileUploader
+                  label="Surat Perjanjian"
+                  accept="image/*,.pdf"
+                  description="Lampiran penanganan pelanggaran."
+                  onDataUrl={(url) => setAgreementLetter(url)}
+                />
+                <FileUploader
+                  label="Surat Keterangan Orang Tua"
+                  accept="image/*,.pdf"
+                  description="Lampiran keterangan/pernyataan orang tua."
+                  onDataUrl={(url) => setParentLetter(url)}
+                />
+              </div>
+              {(selectedRecommendation.agreementLetterFileDataUrl ||
+                selectedRecommendation.parentStatementFileDataUrl) ? (
+                <p className="mt-2 text-xs text-slate-600">
+                  Dokumen tersimpan: {selectedRecommendation.agreementLetterFileDataUrl ? 'Surat Perjanjian ' : ''}{selectedRecommendation.parentStatementFileDataUrl ? 'Surat Keterangan Orang Tua' : ''}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+        </>
+      ) : null}
+
+      {moduleTab === 'keterlambatan' ? (
       <form onSubmit={submitLateArrival} className="grid gap-4 rounded-2xl border border-amber-200 bg-amber-50/40 p-6 shadow-sm">
         <h2 className="text-sm font-semibold text-slate-800">Keterlambatan Siswa (sinkron e-Poin)</h2>
         <p className="text-xs text-slate-600">
@@ -424,7 +619,9 @@ export function ModePiketPage() {
           </table>
         </div>
       </form>
+      ) : null}
 
+      {moduleTab === 'tamu' ? (
       <form onSubmit={submitGuestVisit} className="grid gap-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <h2 className="text-sm font-semibold text-slate-800">Daftar Tamu Sekolah</h2>
         <div className="grid gap-4 md:grid-cols-2">
@@ -484,7 +681,9 @@ export function ModePiketPage() {
           </table>
         </div>
       </form>
+      ) : null}
 
+      {moduleTab === 'kbm' ? (
       <form onSubmit={submitKbmLog} className="grid gap-4 rounded-2xl border border-sky-200 bg-sky-50/40 p-6 shadow-sm">
         <h2 className="text-sm font-semibold text-slate-800">Guru Melaksanakan KBM di Kelas</h2>
         <div className="grid gap-4 md:grid-cols-3">
@@ -572,7 +771,10 @@ export function ModePiketPage() {
           </table>
         </div>
       </form>
+      ) : null}
 
+      {moduleTab === 'poin' ? (
+        <>
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <h2 className="text-sm font-semibold text-slate-800">Poin Siswa (Kontrol Piket)</h2>
         <div className="mt-3 overflow-x-auto">
@@ -603,6 +805,7 @@ export function ModePiketPage() {
         </div>
       </div>
 
+      {canDirectPointAction ? (
       <form onSubmit={submitRedemption} className="grid gap-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <h2 className="text-sm font-semibold text-slate-800">Konfirmasi Penebusan Poin</h2>
         <div className="grid gap-4 md:grid-cols-3">
@@ -625,35 +828,12 @@ export function ModePiketPage() {
         />
         <button className="w-fit rounded-lg bg-brand-navy px-4 py-2 text-sm font-semibold text-white" type="submit">Setujui Penebusan</button>
       </form>
+      ) : null}
+        </>
+      ) : null}
 
-      <form onSubmit={submitPrestasi} className="grid gap-4 rounded-2xl border border-emerald-200 bg-emerald-50/40 p-6 shadow-sm">
-        <h2 className="text-sm font-semibold text-slate-800">Input Poin Prestasi (bukan penebusan)</h2>
-        <div className="grid gap-4 md:grid-cols-3">
-          <select value={studentPrestasi} onChange={(e) => setStudentPrestasi(e.target.value)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm">
-            <option value="">— Pilih siswa —</option>
-            {rows.map((r) => (
-              <option key={r.id} value={r.id}>{r.name}</option>
-            ))}
-          </select>
-          <input
-            type="number"
-            min={1}
-            value={prestasiPoints}
-            onChange={(e) => setPrestasiPoints(Number(e.target.value))}
-            className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
-          />
-          <input
-            value={prestasiReason}
-            onChange={(e) => setPrestasiReason(e.target.value)}
-            placeholder="Contoh: Juara lomba kelas"
-            className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
-          />
-        </div>
-        <button className="w-fit rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white" type="submit">
-          Tambah Poin Prestasi
-        </button>
-      </form>
-
+      {moduleTab === 'rekap' ? (
+        <>
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <h2 className="text-sm font-semibold text-slate-800">Rekap Absen Global ({date})</h2>
         <div className="mt-3 overflow-x-auto">
@@ -740,6 +920,8 @@ export function ModePiketPage() {
           </table>
         </div>
       </div>
+        </>
+      ) : null}
     </div>
   )
 }

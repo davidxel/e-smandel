@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { ADMIN_SECTION_LABEL, NAV_ITEMS } from '../../lib/nav'
+import { NAV_ITEMS, NAV_SECTION_LABELS } from '../../lib/nav'
 import { canAccessRoute, isPiketActive } from '../../lib/permissions'
 import type { AuthUser } from '../../types/schema'
 
@@ -10,14 +10,20 @@ type SidebarProps = {
 }
 
 export function Sidebar({ user, onNavigate, className = '' }: SidebarProps) {
-  const mainItems = NAV_ITEMS.filter(
-    (item) =>
-      item.section === 'main' && canAccessRoute(user, item.key),
-  )
-  const adminItems = NAV_ITEMS.filter(
-    (item) =>
-      item.section === 'admin' && canAccessRoute(user, item.key),
-  )
+  const sectionOrder: Array<NonNullable<(typeof NAV_ITEMS)[number]['section']>> = [
+    'ringkasan',
+    'manajemen_guru',
+    'epoin_bk',
+    'administrasi',
+  ]
+  const sectionedItems = sectionOrder
+    .map((section) => ({
+      section,
+      items: NAV_ITEMS.filter(
+        (item) => item.section === section && canAccessRoute(user, item.key),
+      ),
+    }))
+    .filter((x) => x.items.length > 0)
 
   const linkClass = ({ isActive }: { isActive: boolean }) =>
     [
@@ -37,37 +43,25 @@ export function Sidebar({ user, onNavigate, className = '' }: SidebarProps) {
       className={`flex w-64 shrink-0 flex-col border-r border-white/10 bg-brand-navy-dark text-white ${className}`}
     >
       <nav className="flex flex-1 flex-col gap-1 overflow-y-auto p-3">
-        {mainItems.map(({ key, path, label, icon: Icon }) => (
-          <NavLink
-            key={path}
-            to={path}
-            end={path === '/app'}
-            onClick={onNavigate}
-            className={linkClass}
-          >
-            <Icon className="h-5 w-5 shrink-0 text-brand-gold-light opacity-90" />
-            {resolveLabel(key, label)}
-          </NavLink>
-        ))}
-
-        {adminItems.length > 0 ? (
-          <>
+        {sectionedItems.map(({ section, items }) => (
+          <div key={section}>
             <p className="mt-4 px-3 pt-2 text-[10px] font-bold uppercase tracking-wider text-white/45">
-              {ADMIN_SECTION_LABEL}
+              {NAV_SECTION_LABELS[section]}
             </p>
-            {adminItems.map(({ path, label, icon: Icon }) => (
+            {items.map(({ key, path, label, icon: Icon }) => (
               <NavLink
                 key={path}
                 to={path}
+                end={path === '/app'}
                 onClick={onNavigate}
                 className={linkClass}
               >
                 <Icon className="h-5 w-5 shrink-0 text-brand-gold-light opacity-90" />
-                {label}
+                {resolveLabel(key, label)}
               </NavLink>
             ))}
-          </>
-        ) : null}
+          </div>
+        ))}
       </nav>
       <p className="border-t border-white/10 px-4 py-3 text-xs text-white/50">
         Sistem Informasi Disiplin &amp; Absensi

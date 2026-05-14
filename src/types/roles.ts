@@ -1,6 +1,7 @@
 export type UserRole =
   | 'super_admin'
   | 'kepsek'
+  | 'tata_usaha'
   | 'kesiswaan'
   | 'kurikulum'
   | 'bk'
@@ -11,6 +12,7 @@ export type UserRole =
 export const ROLE_LABELS: Record<UserRole, string> = {
   super_admin: 'Super Admin',
   kepsek: 'Kepala Sekolah',
+  tata_usaha: 'Tata Usaha',
   kesiswaan: 'Kesiswaan',
   kurikulum: 'Kurikulum',
   bk: 'Bimbingan Konseling',

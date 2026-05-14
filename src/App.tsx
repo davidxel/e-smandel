@@ -27,6 +27,8 @@ import { TugasSayaPage } from './pages/TugasSayaPage'
 import { ToastHost } from './components/ui/ToastHost'
 import { useUiStore } from './store/uiStore'
 import { AdminTugasPage } from './pages/admin/AdminTugasPage'
+import { AdminAuditPoinPage } from './pages/admin/AdminAuditPoinPage'
+import { BkKonselingPage } from './pages/BkKonselingPage'
 
 function ProtectedLayout() {
   const user = useAuthStore((s) => s.user)
@@ -170,6 +172,14 @@ export default function App() {
             }
           />
           <Route
+            path="bk/konseling"
+            element={
+              <RequireModule routeKey="bk_manajemen_kasus">
+                <BkKonselingPage />
+              </RequireModule>
+            }
+          />
+          <Route
             path="admin/siswa"
             element={
               <RequireModule routeKey="admin_siswa">
@@ -238,6 +248,14 @@ export default function App() {
             element={
               <RequireModule routeKey="admin_tugas">
                 <AdminTugasPage />
+              </RequireModule>
+            }
+          />
+          <Route
+            path="admin/audit-poin"
+            element={
+              <RequireModule routeKey="admin_audit_poin">
+                <AdminAuditPoinPage />
               </RequireModule>
             }
           />

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Pencil, Plus, Trash2 } from 'lucide-react'
 import { PaginatedTable } from '../../components/ui/PaginatedTable'
+import { ModuleTabBar } from '../../components/ui/ModuleTabBar'
 import { BOLOS_VIOLATION_SLUG } from '../../data/initialSeed'
 import { pullWorkspaceFromServer } from '../../lib/pullWorkspace'
 import { flushWorkspacePushNow } from '../../lib/workspaceSync'
@@ -13,6 +14,13 @@ const CAT_LABEL: Record<ViolationCategory, string> = {
   sedang: 'Sedang',
   berat: 'Berat',
 }
+
+type AdminPelTab = 'kelola' | 'daftar'
+
+const ADMIN_PEL_TABS: { id: AdminPelTab; label: string }[] = [
+  { id: 'kelola', label: 'Tambah / edit' },
+  { id: 'daftar', label: 'Daftar pelanggaran' },
+]
 
 export function AdminPelanggaranPage() {
   const violations = useDataStore((s) => s.violations)
@@ -29,6 +37,7 @@ export function AdminPelanggaranPage() {
   const [eNama, setENama] = useState('')
   const [ePoin, setEPoin] = useState(0)
   const [eCat, setECat] = useState<ViolationCategory>('ringan')
+  const [moduleTab, setModuleTab] = useState<AdminPelTab>('kelola')
 
   useEffect(() => {
     void pullWorkspaceFromServer()
@@ -49,6 +58,7 @@ export function AdminPelanggaranPage() {
     setENama(v.name)
     setEPoin(v.points)
     setECat(v.category)
+    setModuleTab('kelola')
   }
 
   const saveEdit = (e: React.FormEvent) => {
@@ -74,8 +84,13 @@ export function AdminPelanggaranPage() {
           Kategori Ringan/Sedang/Berat dan bobot poin. Entri &quot;Bolos&quot;
           dipakai otomatis oleh absensi.
         </p>
+        <div className="mt-4">
+          <ModuleTabBar tabs={ADMIN_PEL_TABS} value={moduleTab} onChange={setModuleTab} />
+        </div>
       </div>
 
+      {moduleTab === 'kelola' ? (
+        <>
       <form
         onSubmit={handleAdd}
         className="grid gap-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:grid-cols-2 lg:grid-cols-4"
@@ -190,7 +205,10 @@ export function AdminPelanggaranPage() {
           </div>
         </form>
       ) : null}
+        </>
+      ) : null}
 
+      {moduleTab === 'daftar' ? (
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <PaginatedTable
           rows={violations}
@@ -258,6 +276,7 @@ export function AdminPelanggaranPage() {
           )}
         </PaginatedTable>
       </div>
+      ) : null}
     </div>
   )
 }

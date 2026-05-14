@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Pencil, Plus, Trash2 } from 'lucide-react'
+import { ModuleTabBar } from '../../components/ui/ModuleTabBar'
 import { useAuthStore } from '../../store/authStore'
 import { useDataStore } from '../../store/dataStore'
 import { useUiStore } from '../../store/uiStore'
@@ -9,6 +10,13 @@ const STATUS_OPTIONS: { value: StudentAssignmentStatus; label: string }[] = [
   { value: 'belum_mengerjakan', label: 'Belum Mengerjakan' },
   { value: 'sudah_mengerjakan', label: 'Sudah Mengerjakan' },
   { value: 'terlambat', label: 'Terlambat' },
+]
+
+type AdminTugasTab = 'form' | 'daftar'
+
+const ADMIN_TUGAS_TABS: { id: AdminTugasTab; label: string }[] = [
+  { id: 'form', label: 'Buat / edit tugas' },
+  { id: 'daftar', label: 'Daftar & progres siswa' },
 ]
 
 export function AdminTugasPage() {
@@ -34,6 +42,7 @@ export function AdminTugasPage() {
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [dueDate, setDueDate] = useState('')
+  const [moduleTab, setModuleTab] = useState<AdminTugasTab>('form')
 
   const teacherOptions = users.filter((item) => item.role === 'guru_mapel')
 
@@ -89,6 +98,7 @@ export function AdminTugasPage() {
     setDescription(assignment.description)
     setDueDate(assignment.dueDate)
     setClassId(assignment.classId)
+    setModuleTab('form')
   }
 
   const handleSubmit = (event: React.FormEvent) => {
@@ -139,8 +149,12 @@ export function AdminTugasPage() {
         <p className="mt-1 text-sm text-slate-600">
           Super Admin dapat melihat, membuat, mengubah, dan menghapus tugas di semua kelas.
         </p>
+        <div className="mt-4">
+          <ModuleTabBar tabs={ADMIN_TUGAS_TABS} value={moduleTab} onChange={setModuleTab} />
+        </div>
       </div>
 
+      {moduleTab === 'form' ? (
       <form
         onSubmit={handleSubmit}
         className="grid gap-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm md:grid-cols-2 lg:grid-cols-3"
@@ -230,7 +244,10 @@ export function AdminTugasPage() {
           ) : null}
         </div>
       </form>
+      ) : null}
 
+      {moduleTab === 'daftar' ? (
+        <>
       <div className="grid gap-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm md:grid-cols-2">
         <div>
           <label className="text-xs font-medium text-slate-600">Filter kelas</label>
@@ -361,6 +378,8 @@ export function AdminTugasPage() {
             </tbody>
           </table>
         </div>
+      ) : null}
+        </>
       ) : null}
     </div>
   )

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { CalendarDays, ClipboardCheck, Lock, Save } from 'lucide-react'
+import { ModuleTabBar } from '../components/ui/ModuleTabBar'
 import { PaginatedTable } from '../components/ui/PaginatedTable'
 import { buildSmsUrl, buildWhatsAppUrl } from '../lib/userDisplay'
 import { useAuthStore } from '../store/authStore'
@@ -15,6 +16,13 @@ type Row = {
   nisn: string
   locked: boolean
 }
+
+type EAbsenTab = 'absensi' | 'riwayat_poin'
+
+const EABSEN_TABS: { id: EAbsenTab; label: string }[] = [
+  { id: 'absensi', label: 'Absensi kelas' },
+  { id: 'riwayat_poin', label: 'Riwayat poin (audit)' },
+]
 
 export function EAbsenPage() {
   const user = useAuthStore((s) => s.user)
@@ -37,6 +45,7 @@ export function EAbsenPage() {
     phone: string
     message: string
   } | null>(null)
+  const [moduleTab, setModuleTab] = useState<EAbsenTab>('absensi')
 
   const classRosterKey = useMemo(
     () =>
@@ -217,6 +226,9 @@ export function EAbsenPage() {
           Status <strong>Bolos</strong> memotong poin otomatis dari master pelanggaran (audit di
           Riwayat Poin).
         </p>
+        <div className="mt-4">
+          <ModuleTabBar tabs={EABSEN_TABS} value={moduleTab} onChange={setModuleTab} />
+        </div>
       </div>
       {notifPayload ? (
         <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4">
@@ -260,6 +272,8 @@ export function EAbsenPage() {
         </div>
       ) : null}
 
+      {moduleTab === 'absensi' ? (
+        <>
       <div className="grid gap-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm md:grid-cols-3">
         <div>
           <label className="flex items-center gap-2 text-xs font-medium text-slate-600">
@@ -444,51 +458,60 @@ export function EAbsenPage() {
           )}
         </PaginatedTable>
       )}
+        </>
+      ) : null}
 
-      {classId && recentPointHistory.length > 0 ? (
+      {moduleTab === 'riwayat_poin' ? (
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <h2 className="text-sm font-semibold text-slate-800">
             Riwayat poin (audit) — siswa kelas ini
           </h2>
           <p className="mt-1 text-xs text-slate-500">
-            Mencatat pemotongan otomatis dari absensi Bolos dan perubahan lain.
+            Mencatat pemotongan otomatis dari absensi Bolos dan perubahan lain. Pilih kelas di tab
+            Absensi untuk memuat data yang relevan.
           </p>
-          <div className="mt-4 overflow-x-auto rounded-lg border border-slate-100">
-            <table className="w-full min-w-[560px] text-left text-sm">
-              <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-                <tr>
-                  <th className="px-3 py-2">Waktu</th>
-                  <th className="px-3 py-2">Siswa</th>
-                  <th className="px-3 py-2">Δ Poin</th>
-                  <th className="px-3 py-2">Oleh</th>
-                  <th className="px-3 py-2">Alasan</th>
-                </tr>
-              </thead>
-              <tbody>
-                {recentPointHistory.map((ph) => {
-                  const st = students.find((s) => s.id === ph.studentId)
-                  const su = st ? getUserByIdForHistory(st.userId) : undefined
-                  const ch = getUserByIdForHistory(ph.changerId)
-                  return (
-                    <tr
-                      key={ph.id}
-                      className="border-t border-slate-100 text-slate-700"
-                    >
-                      <td className="px-3 py-2 whitespace-nowrap text-xs">
-                        {new Date(ph.timestamp).toLocaleString('id-ID')}
-                      </td>
-                      <td className="px-3 py-2">{su?.name ?? ph.studentId}</td>
-                      <td className="px-3 py-2 font-medium tabular-nums text-red-700">
-                        {ph.pointsChanged}
-                      </td>
-                      <td className="px-3 py-2 text-xs">{ch?.name ?? '—'}</td>
-                      <td className="px-3 py-2 text-xs">{ph.reason}</td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+          {!classId ? (
+            <p className="mt-4 text-sm text-slate-500">Pilih kelas pada tab Absensi kelas terlebih dahulu.</p>
+          ) : recentPointHistory.length === 0 ? (
+            <p className="mt-4 text-sm text-slate-500">Belum ada riwayat poin untuk siswa kelas ini.</p>
+          ) : (
+            <div className="mt-4 overflow-x-auto rounded-lg border border-slate-100">
+              <table className="w-full min-w-[560px] text-left text-sm">
+                <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                  <tr>
+                    <th className="px-3 py-2">Waktu</th>
+                    <th className="px-3 py-2">Siswa</th>
+                    <th className="px-3 py-2">Δ Poin</th>
+                    <th className="px-3 py-2">Oleh</th>
+                    <th className="px-3 py-2">Alasan</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recentPointHistory.map((ph) => {
+                    const st = students.find((s) => s.id === ph.studentId)
+                    const su = st ? getUserByIdForHistory(st.userId) : undefined
+                    const ch = getUserByIdForHistory(ph.changerId)
+                    return (
+                      <tr
+                        key={ph.id}
+                        className="border-t border-slate-100 text-slate-700"
+                      >
+                        <td className="px-3 py-2 whitespace-nowrap text-xs">
+                          {new Date(ph.timestamp).toLocaleString('id-ID')}
+                        </td>
+                        <td className="px-3 py-2">{su?.name ?? ph.studentId}</td>
+                        <td className="px-3 py-2 font-medium tabular-nums text-red-700">
+                          {ph.pointsChanged}
+                        </td>
+                        <td className="px-3 py-2 text-xs">{ch?.name ?? '—'}</td>
+                        <td className="px-3 py-2 text-xs">{ph.reason}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       ) : null}
     </div>

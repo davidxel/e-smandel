@@ -1,8 +1,10 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { BOLOS_VIOLATION_SLUG } from '../data/initialSeed'
+import { UNCLASSIFIED_CLASS_ID } from '../lib/classConstants'
 import { newId } from '../lib/ids'
 import { buildFreshWorkspaceData, syncCompetitionMentorFlags } from '../lib/workspaceState'
+import type { ImportStudentRow } from '../lib/excelStudents'
 import type { UserRole } from '../types/roles'
 import type { DataState } from '../types/dataState'
 import type {
@@ -16,6 +18,7 @@ import type {
   KokurikulerProjectStatus,
   CompetitionLevel,
   CompetitionStatus,
+  EpoinRecommendation,
   GuestVisit,
   KbmLog,
   LateArrival,
@@ -23,6 +26,7 @@ import type {
   PointRedemption,
   PointRedemptionRequest,
   Student,
+  StudentHealthHistory,
   StudentAssignmentStatus,
   TeachingJournal,
   User,
@@ -43,6 +47,7 @@ type DataActions = {
   ) => { ok: boolean; message?: string }
   setPiketSchedule: (userId: string, days: number[]) => void
   setWaliKelasAssignment: (userId: string, classId: string | null) => { ok: boolean; message?: string }
+  setTeacherClassAssignments: (userId: string, classIds: string[]) => { ok: boolean; message?: string }
   setKokurikulerCoordinator: (userId: string, enabled: boolean) => { ok: boolean; message?: string }
   addStaffUser: (input: {
     name: string
@@ -98,6 +103,9 @@ type DataActions = {
     parentPhone?: string
     studentPhone?: string
     gender?: 'L' | 'P'
+    dapodikProfile?: Student['dapodikProfile']
+    dapodikExtraColumns?: Student['dapodikExtraColumns']
+    healthHistory?: StudentHealthHistory
   }) => { user: User; student: Student }
   updateStudent: (
     id: string,
@@ -110,13 +118,24 @@ type DataActions = {
         parentPhone?: string
         studentPhone?: string
         gender?: 'L' | 'P'
+        dapodikProfile?: Student['dapodikProfile']
+        dapodikExtraColumns?: Student['dapodikExtraColumns']
+        healthHistory?: StudentHealthHistory
       }
     >,
   ) => void
   deleteStudent: (id: string) => void
-  importStudentsFromRows: (
-    rows: { nisn: string; name: string; className: string }[],
-  ) => { created: number; errors: string[]; createdUserIds: string[] }
+  importStudentsFromRows: (rows: ImportStudentRow[]) => {
+    created: number
+    errors: string[]
+    warnings: string[]
+    createdUserIds: string[]
+  }
+  bulkAssignStudentsToClass: (input: {
+    actorId: string
+    studentIds: string[]
+    classId: string
+  }) => { ok: boolean; message?: string; moved?: number }
 
   addViolation: (input: Omit<ViolationMaster, 'id' | 'slug'> & { slug?: string }) => ViolationMaster
   updateViolation: (id: string, patch: Partial<ViolationMaster>) => void
@@ -146,6 +165,20 @@ type DataActions = {
     studentId: string
     teacherId: string
     violationId: string
+  }) => { ok: boolean; message?: string }
+  submitEpoinRecommendation: (input: {
+    studentId: string
+    recommenderId: string
+    violationId: string
+    note: string
+  }) => { ok: boolean; message?: string }
+  processEpoinRecommendation: (input: {
+    recommendationId: string
+    processorId: string
+    action: 'approved' | 'rejected'
+    note?: string
+    agreementLetterFileDataUrl?: string | null
+    parentStatementFileDataUrl?: string | null
   }) => { ok: boolean; message?: string }
   redeemStudentPoints: (input: {
     studentId: string
@@ -238,6 +271,29 @@ type DataActions = {
   deleteKokurikulerProject: (id: string) => void
 }
 
+const DEFAULT_IMPORTED_STUDENT_PHOTO = '/default-student-avatar.svg'
+
+function defaultHealthHistory(): StudentHealthHistory {
+  return {
+    conditions: {
+      alergi: { checked: false, year: '' },
+      tbc: { checked: false, year: '' },
+      sakit_kuning: { checked: false, year: '' },
+      hati: { checked: false, year: '' },
+      jantung: { checked: false, year: '' },
+      geger_otak: { checked: false, year: '' },
+      typus: { checked: false, year: '' },
+      maag: { checked: false, year: '' },
+      mata: { checked: false, year: '' },
+      epilepsi: { checked: false, year: '' },
+      kecelakaan: { checked: false, year: '' },
+    },
+    otherConditionName: '',
+    otherConditionChecked: false,
+    otherConditionYear: '',
+  }
+}
+
 export const useDataStore = create<DataState & DataActions>()(
   persist(
     (set, get) => ({
@@ -328,6 +384,22 @@ export const useDataStore = create<DataState & DataActions>()(
         }))
         return { ok: true }
       },
+      setTeacherClassAssignments: (userId, classIds) => {
+        const teacher = get().getUserById(userId)
+        if (!teacher || teacher.role !== 'guru_mapel') {
+          return { ok: false, message: 'Penetapan kelas hanya untuk role Guru.' }
+        }
+        const allowed = new Set(get().classes.map((c) => c.id))
+        const uniqueClassIds = Array.from(
+          new Set(classIds.filter((id) => allowed.has(id))),
+        )
+        set((s) => ({
+          users: s.users.map((u) =>
+            u.id === userId ? { ...u, taught_class_ids: uniqueClassIds } : u,
+          ),
+        }))
+        return { ok: true }
+      },
       setKokurikulerCoordinator: (userId, enabled) => {
         const teacher = get().getUserById(userId)
         if (!teacher || teacher.role !== 'guru_mapel') {
@@ -358,6 +430,7 @@ export const useDataStore = create<DataState & DataActions>()(
           isCompetitionMentor: false,
           is_walikelas: false,
           managed_class_id: null,
+          taught_class_ids: [],
           isKokurikulerCoordinator: false,
           profilePhotoDataUrl: null,
         }
@@ -408,6 +481,7 @@ export const useDataStore = create<DataState & DataActions>()(
       },
 
       deleteClass: (id) => {
+        if (id === UNCLASSIFIED_CLASS_ID) return
         set((s) => ({
           classes: s.classes.filter((c) => c.id !== id),
           assignments: s.assignments.filter((assignment) => assignment.classId !== id),
@@ -416,12 +490,20 @@ export const useDataStore = create<DataState & DataActions>()(
             return assignment?.classId !== id
           }),
           students: s.students.map((st) =>
-            st.classId === id ? { ...st, classId: '' } : st,
+            st.classId === id ? { ...st, classId: UNCLASSIFIED_CLASS_ID } : st,
           ),
           users: s.users.map((u) =>
             u.managed_class_id === id
-              ? { ...u, is_walikelas: false, managed_class_id: null }
-              : u,
+              ? {
+                  ...u,
+                  is_walikelas: false,
+                  managed_class_id: null,
+                  taught_class_ids: (u.taught_class_ids ?? []).filter((classId) => classId !== id),
+                }
+              : {
+                  ...u,
+                  taught_class_ids: (u.taught_class_ids ?? []).filter((classId) => classId !== id),
+                },
           ),
         }))
       },
@@ -621,6 +703,9 @@ export const useDataStore = create<DataState & DataActions>()(
         parentPhone = '',
         studentPhone = '',
         gender = 'L',
+        dapodikProfile = null,
+        dapodikExtraColumns = null,
+        healthHistory = defaultHealthHistory(),
       }) => {
         const n = nisn.trim()
         if (get().users.some((u) => u.nisn?.trim() === n)) {
@@ -639,6 +724,7 @@ export const useDataStore = create<DataState & DataActions>()(
           isCompetitionMentor: false,
           is_walikelas: false,
           managed_class_id: null,
+          taught_class_ids: [],
           isKokurikulerCoordinator: false,
           profilePhotoDataUrl: null,
         }
@@ -652,6 +738,12 @@ export const useDataStore = create<DataState & DataActions>()(
           parentPhone: parentPhone.trim(),
           studentPhone: studentPhone.trim(),
           gender,
+          dapodikProfile,
+          dapodikExtraColumns:
+            dapodikExtraColumns && Object.keys(dapodikExtraColumns).length > 0
+              ? dapodikExtraColumns
+              : null,
+          healthHistory,
         }
         set((s) => ({
           users: [...s.users, user],
@@ -687,6 +779,18 @@ export const useDataStore = create<DataState & DataActions>()(
                   ...(patch.gender !== undefined && {
                     gender: patch.gender,
                   }),
+                  ...(patch.dapodikProfile !== undefined && {
+                    dapodikProfile: patch.dapodikProfile,
+                  }),
+                  ...(patch.dapodikExtraColumns !== undefined && {
+                    dapodikExtraColumns:
+                      patch.dapodikExtraColumns && Object.keys(patch.dapodikExtraColumns).length > 0
+                        ? patch.dapodikExtraColumns
+                        : null,
+                  }),
+                  ...(patch.healthHistory !== undefined && {
+                    healthHistory: patch.healthHistory,
+                  }),
                 }
               : x,
           )
@@ -721,32 +825,50 @@ export const useDataStore = create<DataState & DataActions>()(
 
       importStudentsFromRows: (rows) => {
         const errors: string[] = []
+        const warnings: string[] = []
         const createdUserIds: string[] = []
         let created = 0
         const state = get()
+        const unclassified = state.classes.find((c) => c.id === UNCLASSIFIED_CLASS_ID)
+        if (!unclassified) {
+          return {
+            created: 0,
+            errors: ['Kelas "Belum Terklasifikasi" tidak ada di master. Tambahkan lewat Admin Master Kelas atau sinkron ulang.'],
+            warnings: [],
+            createdUserIds: [],
+          }
+        }
         for (let i = 0; i < rows.length; i++) {
           const row = rows[i]
+          const sourceRowLabel = row.sourceRowNumber || i + 1
           const nisn = row.nisn?.trim() ?? ''
           const name = row.name?.trim() ?? ''
           const className = row.className?.trim() ?? ''
           if (!nisn || !name) {
-            errors.push(`Baris ${i + 2}: NISN dan Nama wajib diisi.`)
             continue
           }
-          const cls = state.classes.find(
-            (c) => c.name.toLowerCase() === className.toLowerCase(),
-          )
-          if (!cls) {
-            errors.push(
-              `Baris ${i + 2}: Kelas "${className || '(kosong)'}" tidak ditemukan.`,
+          const cls =
+            state.classes.find((c) => c.name.toLowerCase() === className.toLowerCase()) ??
+            unclassified
+          if (cls.id === UNCLASSIFIED_CLASS_ID && className) {
+            warnings.push(
+              `Baris ${sourceRowLabel}: Rombel "${className}" tidak cocok — siswa dimasukkan ke "${unclassified.name}".`,
             )
-            continue
+          }
+          if (cls.id === UNCLASSIFIED_CLASS_ID && !className) {
+            warnings.push(
+              `Baris ${sourceRowLabel}: Rombel kosong — siswa dimasukkan ke "${unclassified.name}".`,
+            )
           }
           if (get().users.some((u) => u.nisn?.trim() === nisn)) {
-            errors.push(`Baris ${i + 2}: NISN ${nisn} sudah ada.`)
+            errors.push(`Baris ${sourceRowLabel}: NISN ${nisn} sudah ada.`)
             continue
           }
           try {
+            const extra =
+              row.dapodikExtraColumns && Object.keys(row.dapodikExtraColumns).length > 0
+                ? row.dapodikExtraColumns
+                : null
             const { user } = get().addStudent({
               name,
               nisn,
@@ -756,15 +878,55 @@ export const useDataStore = create<DataState & DataActions>()(
               parentName: '',
               parentPhone: '',
               studentPhone: '',
-              gender: 'L',
+              gender: row.gender,
+              dapodikProfile: row.dapodikProfile,
+              dapodikExtraColumns: extra,
+            })
+            get().updateUser(user.id, {
+              profilePhotoDataUrl: DEFAULT_IMPORTED_STUDENT_PHOTO,
             })
             createdUserIds.push(user.id)
             created += 1
           } catch (e) {
-            errors.push(`Baris ${i + 2}: ${String(e)}`)
+            errors.push(`Baris ${sourceRowLabel}: ${String(e)}`)
           }
         }
-        return { created, errors, createdUserIds }
+        return { created, errors, warnings, createdUserIds }
+      },
+
+      bulkAssignStudentsToClass: ({ actorId, studentIds, classId }) => {
+        const actor = get().getUserById(actorId)
+        if (
+          !actor ||
+          (actor.role !== 'super_admin' &&
+            actor.role !== 'kesiswaan' &&
+            actor.role !== 'kurikulum')
+        ) {
+          return { ok: false, message: 'Tidak diizinkan memindahkan siswa secara massal.' }
+        }
+        if (!get().classes.some((c) => c.id === classId)) {
+          return { ok: false, message: 'Kelas tujuan tidak ditemukan.' }
+        }
+        const idSet = new Set(studentIds)
+        const targetName = (
+          get().classes.find((c) => c.id === classId)?.name ?? ''
+        ).trim()
+        let moved = 0
+        set((s) => ({
+          students: s.students.map((st) => {
+            if (!idSet.has(st.id)) return st
+            moved += 1
+            const profile = st.dapodikProfile
+            return {
+              ...st,
+              classId,
+              dapodikProfile: profile
+                ? { ...profile, rombelSaatIni: targetName || profile.rombelSaatIni }
+                : profile,
+            }
+          }),
+        }))
+        return { ok: true, moved }
       },
 
       addViolation: (input) => {
@@ -904,6 +1066,14 @@ export const useDataStore = create<DataState & DataActions>()(
         return { ok: true }
       },
       applyQuickViolation: ({ studentId, teacherId, violationId }) => {
+        const actor = get().getUserById(teacherId)
+        const canGrantPoint =
+          actor?.role === 'super_admin' ||
+          actor?.role === 'bk' ||
+          actor?.role === 'kesiswaan'
+        if (!canGrantPoint) {
+          return { ok: false, message: 'Poin pelanggaran hanya bisa diberikan BK/Kesiswaan.' }
+        }
         const st = get().getStudentById(studentId)
         const viol = get().violations.find((v) => v.id === violationId)
         if (!st || !viol) return { ok: false, message: 'Data siswa/pelanggaran tidak ditemukan.' }
@@ -925,6 +1095,82 @@ export const useDataStore = create<DataState & DataActions>()(
           }
           return { students, pointHistory: [ph, ...s.pointHistory] }
         })
+        return { ok: true }
+      },
+      submitEpoinRecommendation: ({ studentId, recommenderId, violationId, note }) => {
+        const st = get().getStudentById(studentId)
+        const viol = get().violations.find((v) => v.id === violationId)
+        const actor = get().getUserById(recommenderId)
+        if (!st || !viol || !actor) return { ok: false, message: 'Data tidak valid.' }
+        if (actor.role === 'bk' || actor.role === 'kesiswaan' || actor.role === 'siswa') {
+          return { ok: false, message: 'Akun ini tidak menggunakan alur rekomendasi.' }
+        }
+        const entry: EpoinRecommendation = {
+          id: newId(),
+          studentId,
+          violationId,
+          recommenderId,
+          note: note.trim(),
+          status: 'pending',
+          processedBy: null,
+          processedAt: null,
+          agreementLetterFileDataUrl: null,
+          parentStatementFileDataUrl: null,
+          createdAt: new Date().toISOString(),
+        }
+        set((s) => ({ epoinRecommendations: [entry, ...s.epoinRecommendations] }))
+        return { ok: true }
+      },
+      processEpoinRecommendation: ({
+        recommendationId,
+        processorId,
+        action,
+        note,
+        agreementLetterFileDataUrl,
+        parentStatementFileDataUrl,
+      }) => {
+        const processor = get().getUserById(processorId)
+        if (
+          !processor ||
+          (processor.role !== 'super_admin' &&
+            processor.role !== 'bk' &&
+            processor.role !== 'kesiswaan')
+        ) {
+          return { ok: false, message: 'Hanya BK/Kesiswaan yang dapat memproses rekomendasi.' }
+        }
+        const target = get().epoinRecommendations.find((x) => x.id === recommendationId)
+        if (!target) return { ok: false, message: 'Rekomendasi tidak ditemukan.' }
+        if (target.status !== 'pending') return { ok: false, message: 'Rekomendasi sudah diproses.' }
+        const now = new Date().toISOString()
+        if (action === 'approved') {
+          const applied = get().applyQuickViolation({
+            studentId: target.studentId,
+            teacherId: processorId,
+            violationId: target.violationId,
+          })
+          if (!applied.ok) return applied
+        }
+        set((s) => ({
+          epoinRecommendations: s.epoinRecommendations.map((x) =>
+            x.id === recommendationId
+              ? {
+                  ...x,
+                  status: action,
+                  processedBy: processorId,
+                  processedAt: now,
+                  note: note?.trim() ? `${x.note}\n\nTindak lanjut BK: ${note.trim()}` : x.note,
+                  agreementLetterFileDataUrl:
+                    action === 'approved'
+                      ? agreementLetterFileDataUrl ?? x.agreementLetterFileDataUrl
+                      : x.agreementLetterFileDataUrl,
+                  parentStatementFileDataUrl:
+                    action === 'approved'
+                      ? parentStatementFileDataUrl ?? x.parentStatementFileDataUrl
+                      : x.parentStatementFileDataUrl,
+                }
+              : x,
+          ),
+        }))
         return { ok: true }
       },
       redeemStudentPoints: ({
@@ -1495,7 +1741,7 @@ export const useDataStore = create<DataState & DataActions>()(
     }),
     {
       name: 'e-smandel-data',
-      version: 13,
+      version: 15,
       merge: (persisted, current) => {
         const merged = {
           ...(current as DataState & DataActions),
@@ -1507,7 +1753,7 @@ export const useDataStore = create<DataState & DataActions>()(
             (merged.users ?? [])
               .filter((u) => {
                 const legacyRole = (u as unknown as { role: string }).role
-                return u.id !== 'u7' && legacyRole !== 'guru_pembimbing'
+                return legacyRole !== 'guru_pembimbing'
               })
               .map((u) => {
                 const legacyRole = (u as unknown as { role: string }).role
@@ -1519,6 +1765,7 @@ export const useDataStore = create<DataState & DataActions>()(
                   isCompetitionMentor: !!u.isCompetitionMentor,
                   is_walikelas: !!u.is_walikelas,
                   managed_class_id: u.managed_class_id ?? null,
+                  taught_class_ids: u.taught_class_ids ?? [],
                   isKokurikulerCoordinator: !!u.isKokurikulerCoordinator,
                 }
               }),
@@ -1552,6 +1799,13 @@ export const useDataStore = create<DataState & DataActions>()(
             parentPhone: st.parentPhone ?? '',
             studentPhone: st.studentPhone ?? '',
             gender: st.gender ?? 'L',
+            dapodikProfile: st.dapodikProfile ?? null,
+            healthHistory: st.healthHistory ?? defaultHealthHistory(),
+          })),
+          epoinRecommendations: (merged.epoinRecommendations ?? []).map((rec) => ({
+            ...rec,
+            agreementLetterFileDataUrl: rec.agreementLetterFileDataUrl ?? null,
+            parentStatementFileDataUrl: rec.parentStatementFileDataUrl ?? null,
           })),
         }
       },
@@ -1574,6 +1828,7 @@ export const useDataStore = create<DataState & DataActions>()(
         competitionStatusHistory: s.competitionStatusHistory,
         waliKelasNotes: s.waliKelasNotes,
         kokurikulerProjects: s.kokurikulerProjects,
+        epoinRecommendations: s.epoinRecommendations,
       }),
     },
     ),

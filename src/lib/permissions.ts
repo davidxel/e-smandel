@@ -22,8 +22,10 @@ export type AppRouteKey =
   | 'admin_walikelas'
   | 'admin_koordinator_kokurikuler'
   | 'admin_tugas'
+  | 'admin_audit_poin'
   | 'mode_piket'
   | 'penebusan_poin'
+  | 'bk_manajemen_kasus'
 
 const ROLE_ROUTE_MATRIX: Record<UserRole, AppRouteKey[]> = {
   super_admin: [
@@ -47,8 +49,21 @@ const ROLE_ROUTE_MATRIX: Record<UserRole, AppRouteKey[]> = {
     'admin_walikelas',
     'admin_koordinator_kokurikuler',
     'admin_tugas',
+    'admin_audit_poin',
   ],
-  kepsek: ['dashboard', 'profil', 'laporan'],
+  kepsek: [
+    'dashboard',
+    'profil',
+    'mode_piket',
+    'eabsen',
+    'ejurnal',
+    'eprestasi',
+    'kokurikuler_operasional',
+    'manajemen_tugas',
+    'laporan',
+    'penebusan_poin',
+  ],
+  tata_usaha: ['dashboard', 'profil', 'admin_guru', 'laporan'],
   kesiswaan: [
     'dashboard',
     'profil',
@@ -60,7 +75,6 @@ const ROLE_ROUTE_MATRIX: Record<UserRole, AppRouteKey[]> = {
     'admin_tugas',
     'laporan',
     'admin_siswa',
-    'admin_guru',
     'admin_pelanggaran',
     'admin_kelas',
     'admin_pembimbing_lomba',
@@ -73,10 +87,11 @@ const ROLE_ROUTE_MATRIX: Record<UserRole, AppRouteKey[]> = {
     'ejurnal',
     'admin_jadwal_piket',
     'admin_walikelas',
+    'admin_kelas',
     'admin_koordinator_kokurikuler',
   ],
-  bk: ['dashboard', 'profil', 'epoin', 'laporan'],
-  guru_piket: ['dashboard', 'profil', 'epoin', 'ejurnal'],
+  bk: ['dashboard', 'profil', 'epoin', 'laporan', 'bk_manajemen_kasus'],
+  guru_piket: ['dashboard', 'profil', 'epoin', 'ejurnal', 'penebusan_poin'],
   guru_mapel: ['dashboard', 'profil', 'eabsen', 'ejurnal', 'kelas_saya', 'manajemen_tugas'],
   siswa: ['dashboard', 'profil', 'tugas_saya'],
 }
@@ -103,11 +118,15 @@ export function canAccessRoute(user: AuthUser, key: AppRouteKey): boolean {
     return false
   }
   if (key === 'kelas_saya') {
-    return (
-      user.role === 'guru_mapel' &&
-      !!user.is_walikelas &&
-      !!user.managed_class_id
-    )
+    if (user.role === 'guru_mapel') {
+      if (user.is_walikelas && user.managed_class_id) return true
+      return (user.taught_class_ids ?? []).length > 0
+    }
+    if (user.role === 'kesiswaan' || user.role === 'kepsek' || user.role === 'kurikulum') {
+      if (user.is_walikelas && user.managed_class_id) return true
+      return (user.taught_class_ids ?? []).length > 0
+    }
+    return false
   }
   if (key === 'kokurikuler_operasional') {
     if (user.role === 'kurikulum') return true
@@ -131,6 +150,7 @@ export function isAdminRouteKey(key: AppRouteKey): boolean {
     key === 'admin_pembimbing_lomba' ||
     key === 'admin_walikelas' ||
     key === 'admin_koordinator_kokurikuler' ||
-    key === 'admin_tugas'
+    key === 'admin_tugas' ||
+    key === 'admin_audit_poin'
   )
 }

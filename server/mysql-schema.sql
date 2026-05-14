@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS user_auth (
 CREATE TABLE IF NOT EXISTS workspace (
   id TINYINT UNSIGNED NOT NULL PRIMARY KEY,
   payload LONGTEXT NOT NULL,
+  revision BIGINT UNSIGNED NOT NULL DEFAULT 1,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -169,6 +170,7 @@ CREATE TABLE IF NOT EXISTS app_users (
   is_competition_mentor TINYINT(1) NOT NULL DEFAULT 0,
   is_walikelas TINYINT(1) NOT NULL DEFAULT 0,
   managed_class_id VARCHAR(64) NULL,
+  taught_class_ids JSON NULL,
   is_kokurikuler_coordinator TINYINT(1) NOT NULL DEFAULT 0,
   profile_photo_data_url LONGTEXT NULL,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -187,10 +189,30 @@ CREATE TABLE IF NOT EXISTS students (
   parent_phone VARCHAR(32) NOT NULL DEFAULT '',
   student_phone VARCHAR(32) NOT NULL DEFAULT '',
   gender CHAR(1) NOT NULL DEFAULT 'L',
+  dapodik_profile JSON NULL,
+  health_history JSON NULL,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_students_user (user_id),
   INDEX idx_students_class (class_id),
   INDEX idx_students_points (total_points)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS epoin_recommendations (
+  id VARCHAR(64) NOT NULL PRIMARY KEY,
+  student_id VARCHAR(64) NOT NULL,
+  violation_id VARCHAR(64) NOT NULL,
+  recommender_id VARCHAR(64) NOT NULL,
+  note LONGTEXT NOT NULL,
+  status VARCHAR(16) NOT NULL,
+  processed_by VARCHAR(64) NULL,
+  processed_at DATETIME NULL,
+  agreement_letter_file_data_url LONGTEXT NULL,
+  parent_statement_file_data_url LONGTEXT NULL,
+  created_at DATETIME NOT NULL,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_epoin_rec_student (student_id),
+  INDEX idx_epoin_rec_status (status),
+  INDEX idx_epoin_rec_created_at (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS attendance (
@@ -274,4 +296,50 @@ CREATE TABLE IF NOT EXISTS kokurikuler_project_students (
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY uq_kokurikuler_project_student (project_id, student_id),
   INDEX idx_kokurikuler_project_students_student (student_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS audit_log (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  actor_user_id VARCHAR(64) NOT NULL,
+  action VARCHAR(64) NOT NULL,
+  details JSON NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_audit_log_actor_ts (actor_user_id, created_at),
+  INDEX idx_audit_log_action_ts (action, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS counseling_logs (
+  id VARCHAR(64) NOT NULL PRIMARY KEY,
+  student_id VARCHAR(64) NOT NULL,
+  counselor_id VARCHAR(64) NOT NULL,
+  session_date DATE NOT NULL,
+  session_no INT NOT NULL,
+  session_type VARCHAR(16) NOT NULL,
+  analysis LONGTEXT NOT NULL,
+  action_plan LONGTEXT NOT NULL,
+  status VARCHAR(32) NOT NULL,
+  attachment_url LONGTEXT NULL,
+  created_at DATETIME NOT NULL,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_counseling_logs_student_date (student_id, session_date),
+  INDEX idx_counseling_logs_counselor (counselor_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS sp_records (
+  id VARCHAR(64) NOT NULL PRIMARY KEY,
+  student_id VARCHAR(64) NOT NULL,
+  sp_level VARCHAR(8) NOT NULL,
+  issue_date DATE NOT NULL,
+  file_url LONGTEXT NOT NULL,
+  issued_by_user_id VARCHAR(64) NOT NULL,
+  created_at DATETIME NOT NULL,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_sp_records_student_level (student_id, sp_level),
+  INDEX idx_sp_records_student (student_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS student_details (
+  student_id VARCHAR(64) NOT NULL PRIMARY KEY,
+  extra_columns JSON NOT NULL,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

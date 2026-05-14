@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { FileUploader } from '../components/ui/FileUploader'
+import { ModuleTabBar } from '../components/ui/ModuleTabBar'
 import { pullWorkspaceFromServer } from '../lib/pullWorkspace'
 import { buildSmsUrl, buildWhatsAppUrl } from '../lib/userDisplay'
 import { flushWorkspacePushNow } from '../lib/workspaceSync'
@@ -14,6 +15,8 @@ const ACTIVITY_OPTIONS = [
   'Bersih Musholla',
   'Membantu Kebersihan Kelas',
 ]
+
+type PenebusanTab = 'ajukan' | 'status' | 'proses' | 'approval' | 'riwayat'
 
 export function PenebusanPoinPage() {
   const navigate = useNavigate()
@@ -41,6 +44,28 @@ export function PenebusanPoinPage() {
     title: string
   } | null>(null)
 
+  const penebusTabs = useMemo(() => {
+    if (user?.role === 'siswa') {
+      return [
+        { id: 'ajukan' as const, label: 'Ajukan penebusan' },
+        { id: 'status' as const, label: 'Status pengajuan' },
+        { id: 'riwayat' as const, label: 'Riwayat penebusan' },
+      ]
+    }
+    return [
+      { id: 'proses' as const, label: 'Proses langsung' },
+      { id: 'approval' as const, label: 'Menunggu approval' },
+      { id: 'riwayat' as const, label: 'Riwayat penebusan' },
+    ]
+  }, [user?.role])
+
+  const [moduleTab, setModuleTab] = useState<PenebusanTab>('proses')
+
+  useEffect(() => {
+    if (!user) return
+    setModuleTab(user.role === 'siswa' ? 'ajukan' : 'proses')
+  }, [user])
+
   const studentRows = useMemo(
     () =>
       students.map((s) => ({
@@ -53,6 +78,13 @@ export function PenebusanPoinPage() {
 
   const myStudent = user ? getStudentByUserId(user.id) : undefined
   const blockedForStudent = user?.role === 'siswa' && (myStudent?.totalPoints ?? 0) >= 0
+
+  const riwayatRows = useMemo(() => {
+    if (user?.role === 'siswa' && myStudent) {
+      return pointRedemptions.filter((r) => r.studentId === myStudent.id).slice(0, 20)
+    }
+    return pointRedemptions.slice(0, 20)
+  }, [user?.role, myStudent, pointRedemptions])
 
   useEffect(() => {
     void pullWorkspaceFromServer()
@@ -150,6 +182,9 @@ export function PenebusanPoinPage() {
         <p className="mt-1 text-sm text-slate-600">
           Restorasi karakter: siswa mengajukan kegiatan, guru pengawas melakukan verifikasi dan approval.
         </p>
+        <div className="mt-4">
+          <ModuleTabBar tabs={penebusTabs} value={moduleTab} onChange={setModuleTab} />
+        </div>
       </div>
       {notifPayload ? (
         <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4">
@@ -190,7 +225,7 @@ export function PenebusanPoinPage() {
           </div>
         </div>
       ) : null}
-      {user.role === 'siswa' ? (
+      {user.role === 'siswa' && moduleTab === 'ajukan' ? (
         <form onSubmit={submitRequestByStudent} className="grid gap-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <h2 className="text-sm font-semibold text-slate-800">Ajukan Penebusan Poin</h2>
           <div className="grid gap-4 md:grid-cols-3">
@@ -239,7 +274,8 @@ export function PenebusanPoinPage() {
             Kirim Pengajuan
           </button>
         </form>
-      ) : (
+      ) : null}
+      {user.role !== 'siswa' && moduleTab === 'proses' ? (
         <form onSubmit={submitDirect} className="grid gap-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="grid gap-4 md:grid-cols-3">
             <div>
@@ -294,9 +330,9 @@ export function PenebusanPoinPage() {
             Proses Penebusan Langsung
           </button>
         </form>
-      )}
+      ) : null}
 
-      {user.role === 'siswa' ? (
+      {user.role === 'siswa' && moduleTab === 'status' ? (
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <h2 className="text-sm font-semibold text-slate-800">Status Pengajuan Saya</h2>
           <div className="mt-3 overflow-x-auto">
@@ -326,9 +362,12 @@ export function PenebusanPoinPage() {
         </div>
       ) : null}
 
-      {user.role !== 'siswa' && pendingForTeacher.length > 0 ? (
+      {user.role !== 'siswa' && moduleTab === 'approval' ? (
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <h2 className="text-sm font-semibold text-slate-800">Menunggu Approval Anda</h2>
+          {pendingForTeacher.length === 0 ? (
+            <p className="mt-3 text-sm text-slate-500">Tidak ada pengajuan penebusan yang menunggu persetujuan Anda.</p>
+          ) : (
           <div className="mt-4 space-y-4">
             {pendingForTeacher.map((req) => {
               const st = students.find((s) => s.id === req.studentId)
@@ -399,9 +438,11 @@ export function PenebusanPoinPage() {
               )
             })}
           </div>
+          )}
         </div>
       ) : null}
 
+      {moduleTab === 'riwayat' ? (
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <h2 className="text-sm font-semibold text-slate-800">Riwayat penebusan terbaru</h2>
         <div className="mt-3 overflow-x-auto">
@@ -416,7 +457,7 @@ export function PenebusanPoinPage() {
               </tr>
             </thead>
             <tbody>
-              {pointRedemptions.slice(0, 20).map((r) => {
+              {riwayatRows.map((r) => {
                 const student = students.find((s) => s.id === r.studentId)
                 const studentName = student ? getUserById(student.userId)?.name : r.studentId
                 const teacherName = users.find((u) => u.id === r.teacherId)?.name ?? r.teacherId
@@ -434,6 +475,7 @@ export function PenebusanPoinPage() {
           </table>
         </div>
       </div>
+      ) : null}
     </div>
   )
 }

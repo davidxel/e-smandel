@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
-import { Lock, Sparkles, User } from 'lucide-react'
+import { Eye, EyeOff, Lock, Sparkles, User } from 'lucide-react'
 import { SchoolLogo } from '../components/ui/SchoolLogo'
 import { getCredentialForLogin } from '../lib/userDisplay'
 import { useAuthStore } from '../store/authStore'
@@ -16,6 +16,7 @@ export function LoginPage() {
   const showToast = useUiStore((s) => s.showToast)
   const [credential, setCredential] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
 
   if (user) return <Navigate to="/app" replace />
@@ -99,14 +100,26 @@ export function LoginPage() {
                 <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                 <input
                   id="pass"
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   autoComplete="current-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-3 text-slate-900 outline-none ring-brand-navy focus:border-brand-navy focus:ring-2"
+                  className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-10 text-slate-900 outline-none ring-brand-navy focus:border-brand-navy focus:ring-2"
                   placeholder="••••••••"
                   required
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((prev) => !prev)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 transition hover:text-slate-700"
+                  aria-label={showPassword ? 'Sembunyikan kata sandi' : 'Tampilkan kata sandi'}
+                >
+                  {showPassword ? (
+                    <EyeOff className="h-4 w-4" />
+                  ) : (
+                    <Eye className="h-4 w-4" />
+                  )}
+                </button>
               </div>
             </div>
             <button
@@ -122,11 +135,11 @@ export function LoginPage() {
             <div className="mt-6 border-t border-slate-200 pt-5">
               <p className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
                 <Sparkles className="h-3.5 w-3.5 text-brand-gold" />
-                Demo cepat (staff: demo123; siswa: siswa123)
+                Demo cepat (staff: demo1234; siswa: siswa123)
               </p>
               <div className="max-h-48 space-y-2 overflow-y-auto pr-1">
                 {demoAccounts.map((u) => {
-                  const defaultPwd = u.role === 'siswa' ? 'siswa123' : 'demo123'
+                  const defaultPwd = u.role === 'siswa' ? 'siswa123' : 'demo1234'
                   return (
                     <button
                       key={u.id}

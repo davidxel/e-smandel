@@ -1,9 +1,17 @@
 import { useState } from 'react'
 import { Pencil, Plus, Trash2 } from 'lucide-react'
 import { PaginatedTable } from '../../components/ui/PaginatedTable'
+import { ModuleTabBar } from '../../components/ui/ModuleTabBar'
 import { useDataStore } from '../../store/dataStore'
 import { useUiStore } from '../../store/uiStore'
 import type { ClassRoom } from '../../types/schema'
+
+type AdminKelasTab = 'kelola' | 'daftar'
+
+const ADMIN_KELAS_TABS: { id: AdminKelasTab; label: string }[] = [
+  { id: 'kelola', label: 'Tambah / edit' },
+  { id: 'daftar', label: 'Daftar kelas' },
+]
 
 export function AdminKelasPage() {
   const classes = useDataStore((s) => s.classes)
@@ -15,6 +23,7 @@ export function AdminKelasPage() {
   const [nama, setNama] = useState('')
   const [editing, setEditing] = useState<ClassRoom | null>(null)
   const [eNama, setENama] = useState('')
+  const [moduleTab, setModuleTab] = useState<AdminKelasTab>('kelola')
 
   const handleAdd = (e: React.FormEvent) => {
     e.preventDefault()
@@ -26,6 +35,7 @@ export function AdminKelasPage() {
   const openEdit = (c: ClassRoom) => {
     setEditing(c)
     setENama(c.name)
+    setModuleTab('kelola')
   }
 
   const saveEdit = (e: React.FormEvent) => {
@@ -45,8 +55,13 @@ export function AdminKelasPage() {
         <p className="mt-1 text-sm text-slate-600">
           Daftar nama kelas di SMAN 8 Mandau (untuk siswa &amp; absensi).
         </p>
+        <div className="mt-4">
+          <ModuleTabBar tabs={ADMIN_KELAS_TABS} value={moduleTab} onChange={setModuleTab} />
+        </div>
       </div>
 
+      {moduleTab === 'kelola' ? (
+        <>
       <form
         onSubmit={handleAdd}
         className="flex flex-wrap items-end gap-3 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
@@ -104,7 +119,10 @@ export function AdminKelasPage() {
           </button>
         </form>
       ) : null}
+        </>
+      ) : null}
 
+      {moduleTab === 'daftar' ? (
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <PaginatedTable
           rows={classes}
@@ -164,6 +182,7 @@ export function AdminKelasPage() {
           )}
         </PaginatedTable>
       </div>
+      ) : null}
     </div>
   )
 }

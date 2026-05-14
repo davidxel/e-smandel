@@ -15,6 +15,7 @@ function baseUser(partial: Partial<AuthUser>): AuthUser {
     isCompetitionMentor: false,
     is_walikelas: false,
     managed_class_id: null,
+    taught_class_ids: [],
     isKokurikulerCoordinator: false,
     profilePhotoDataUrl: null,
     ...partial,
@@ -51,6 +52,21 @@ describe('canAccessRoute', () => {
     const u = baseUser({ role: 'kepsek' })
     expect(canAccessRoute(u, 'laporan')).toBe(true)
     expect(canAccessRoute(u, 'admin_siswa')).toBe(false)
+  })
+
+  it('Guru BK dapat mengakses modul manajemen kasus konseling', () => {
+    const u = baseUser({ role: 'bk', nip: '999' })
+    expect(canAccessRoute(u, 'bk_manajemen_kasus')).toBe(true)
+    expect(canAccessRoute(u, 'admin_siswa')).toBe(false)
+  })
+
+  it('kesiswaan dengan wali kelas dapat mengakses Kelas Saya', () => {
+    const u = baseUser({
+      role: 'kesiswaan',
+      is_walikelas: true,
+      managed_class_id: 'cls-1',
+    })
+    expect(canAccessRoute(u, 'kelas_saya')).toBe(true)
   })
 
   it('eprestasi untuk guru_mapel hanya jika pembimbing lomba', () => {
