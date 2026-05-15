@@ -1,5 +1,5 @@
 ---
 deployment:
   tasks:
-    - export DEPLOYPATH=/home/elearn83/test.elearningsmkn1tanjungraya.my.id/
+    - export DEPLOYPATH=/home/elearn83/tes.elearningsmkn1tanjungraya.my.id/
     - /bin/cp -R dist/* $DEPLOYPATH
