@@ -1,12 +1,40 @@
-import { useState } from 'react'
+import { useEffect, useState, type CSSProperties, type FormEvent } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
-import { Eye, EyeOff, Lock, Sparkles, User } from 'lucide-react'
+import { AlertTriangle, Eye, EyeOff, Lock, Sparkles, User } from 'lucide-react'
 import { SchoolLogo } from '../components/ui/SchoolLogo'
+import { apiUrl } from '../lib/api'
 import { getCredentialForLogin } from '../lib/userDisplay'
 import { useAuthStore } from '../store/authStore'
 import { useDataStore } from '../store/dataStore'
 import { useUiStore } from '../store/uiStore'
 import { ROLE_LABELS } from '../types/roles'
+import type { LoginAppearance } from '../types/loginAppearance'
+import { defaultLoginAppearance } from '../types/loginAppearance'
+
+type LoginContextResponse = {
+  databaseOk: boolean
+  databaseMessage?: string
+  appearance: LoginAppearance
+}
+
+function backdropStyle(appearance: LoginAppearance): CSSProperties | undefined {
+  if (appearance.background.kind === 'gradient_custom') {
+    const { from, via, to } = appearance.background
+    return {
+      background: `linear-gradient(to bottom right, ${from}, ${via}, ${to})`,
+    }
+  }
+  if (appearance.background.kind === 'image') {
+    const { dataUrl, overlay } = appearance.background
+    return {
+      backgroundImage: `linear-gradient(rgba(15,23,42,${overlay}), rgba(15,23,42,${overlay})), url(${JSON.stringify(dataUrl)})`,
+      backgroundSize: 'cover',
+      backgroundPosition: 'center',
+      backgroundRepeat: 'no-repeat',
+    }
+  }
+  return undefined
+}
 
 export function LoginPage() {
   const navigate = useNavigate()
@@ -18,13 +46,68 @@ export function LoginPage() {
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [appearance, setAppearance] = useState<LoginAppearance>(() => defaultLoginAppearance())
+  const [databaseOk, setDatabaseOk] = useState(true)
+  const [databaseMessage, setDatabaseMessage] = useState<string | undefined>(undefined)
+  const [apiUnreachable, setApiUnreachable] = useState(false)
+  const [contextLoading, setContextLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch(apiUrl('/api/public/login-context'), {
+          method: 'GET',
+          credentials: 'same-origin',
+        })
+        if (!res.ok) {
+          if (!cancelled) {
+            setAppearance(defaultLoginAppearance())
+            setDatabaseOk(false)
+            setDatabaseMessage(
+              `Layanan API mengembalikan status ${res.status}. Basis data atau rute publik tidak tersedia.`,
+            )
+            setApiUnreachable(false)
+          }
+          return
+        }
+        const body = (await res.json()) as LoginContextResponse
+        if (cancelled) return
+        setAppearance(body.appearance ?? defaultLoginAppearance())
+        setDatabaseOk(body.databaseOk !== false)
+        setDatabaseMessage(body.databaseMessage)
+        setApiUnreachable(false)
+      } catch {
+        if (!cancelled) {
+          setAppearance(defaultLoginAppearance())
+          setDatabaseOk(false)
+          setDatabaseMessage(
+            'Tidak dapat menghubungi server API (jaringan, CORS, atau backend belum dijalankan). Periksa npm run dev pada API dan proxy Vite.',
+          )
+          setApiUnreachable(true)
+        }
+      } finally {
+        if (!cancelled) setContextLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   if (user) return <Navigate to="/app" replace />
 
   const demoAccounts = allUsers.filter((u) => !u.id.startsWith('u-dummy'))
+  const bg = appearance.background
+  const useDefaultGradient = bg.kind === 'default'
+  const customBackdrop = backdropStyle(appearance)
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
+    if (!databaseOk) {
+      showToast('Basis data tidak siap — login tidak dapat diproses.', 'error')
+      return
+    }
     setLoading(true)
     const res = await login(credential, password)
     setLoading(false)
@@ -42,28 +125,71 @@ export function LoginPage() {
   }
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-gradient-to-br from-brand-navy-dark via-brand-navy to-brand-navy-muted px-4 py-10">
-      <div
-        className="pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full bg-brand-gold/20 blur-3xl"
-        aria-hidden
-      />
-      <div
-        className="pointer-events-none absolute -bottom-20 -left-20 h-72 w-72 rounded-full bg-sky-400/10 blur-3xl"
-        aria-hidden
-      />
+    <div
+      className={[
+        'relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-10',
+        useDefaultGradient
+          ? 'bg-gradient-to-br from-brand-navy-dark via-brand-navy to-brand-navy-muted'
+          : 'bg-slate-900',
+      ].join(' ')}
+      style={customBackdrop}
+    >
+      {useDefaultGradient ? (
+        <>
+          <div
+            className="pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full bg-brand-gold/20 blur-3xl"
+            aria-hidden
+          />
+          <div
+            className="pointer-events-none absolute -bottom-20 -left-20 h-72 w-72 rounded-full bg-sky-400/10 blur-3xl"
+            aria-hidden
+          />
+        </>
+      ) : bg.kind === 'image' ? (
+        <div className="pointer-events-none absolute inset-0 bg-black/10" aria-hidden />
+      ) : (
+        <div
+          className="pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full bg-white/5 blur-3xl"
+          aria-hidden
+        />
+      )}
 
       <div className="relative z-10 w-full max-w-md">
+        {!databaseOk || apiUnreachable ? (
+          <div
+            className="mb-4 flex gap-3 rounded-xl border border-amber-300/80 bg-amber-50/95 p-4 text-sm text-amber-950 shadow-lg backdrop-blur-sm"
+            role="alert"
+          >
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" aria-hidden />
+            <div>
+              <p className="font-semibold text-amber-900">
+                {apiUnreachable ? 'Server API tidak merespons' : 'Basis data tidak tersedia'}
+              </p>
+              <p className="mt-1 leading-relaxed text-amber-900/90">
+                {databaseMessage ??
+                  'Pastikan MySQL berjalan, file .env benar, dan migrasi basis data sudah dijalankan.'}
+              </p>
+              <p className="mt-2 text-xs text-amber-800/90">
+                Tampilan halaman memakai bawaan aplikasi hingga koneksi berhasil. Login tidak akan
+                berhasil sebelum basis data terhubung.
+              </p>
+            </div>
+          </div>
+        ) : null}
+
+        {contextLoading ? (
+          <p className="mb-6 text-center text-sm text-white/80">Memeriksa koneksi…</p>
+        ) : null}
+
         <div className="mb-8 text-center text-white">
-          <SchoolLogo variant="hero" />
-          <h1 className="text-2xl font-bold tracking-tight md:text-3xl">
-            e-Smandel
-          </h1>
-          <p className="mt-2 text-sm text-white/80">
-            Sistem Informasi Disiplin &amp; Absensi
-          </p>
-          <p className="mt-1 text-xs text-brand-gold-light/90">
-            SMAN 8 Mandau
-          </p>
+          <SchoolLogo
+            variant="hero"
+            srcOverride={appearance.logoDataUrl}
+            altOverride={appearance.logoAlt}
+          />
+          <h1 className="text-2xl font-bold tracking-tight md:text-3xl">{appearance.title}</h1>
+          <p className="mt-2 text-sm text-white/80">{appearance.subtitle}</p>
+          <p className="mt-1 text-xs text-brand-gold-light/90">{appearance.schoolLine}</p>
         </div>
 
         <div className="rounded-2xl border border-white/10 bg-white/95 p-6 shadow-2xl backdrop-blur-sm md:p-8">
@@ -86,6 +212,7 @@ export function LoginPage() {
                   className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-3 text-slate-900 outline-none ring-brand-navy focus:border-brand-navy focus:ring-2"
                   placeholder="NIP (guru/staff) atau NISN (siswa)"
                   required
+                  disabled={!databaseOk}
                 />
               </div>
             </div>
@@ -107,6 +234,7 @@ export function LoginPage() {
                   className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-10 text-slate-900 outline-none ring-brand-navy focus:border-brand-navy focus:ring-2"
                   placeholder="••••••••"
                   required
+                  disabled={!databaseOk}
                 />
                 <button
                   type="button"
@@ -124,10 +252,10 @@ export function LoginPage() {
             </div>
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || !databaseOk}
               className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-navy py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-brand-navy-dark disabled:opacity-60"
             >
-              {loading ? 'Memproses…' : 'Masuk'}
+              {loading ? 'Memproses…' : !databaseOk ? 'Login tidak tersedia' : 'Masuk'}
             </button>
           </form>
 
@@ -161,13 +289,9 @@ export function LoginPage() {
           ) : null}
         </div>
 
-        <p className="mt-6 text-center text-xs text-white/60">
-          © {new Date().getFullYear()} SMAN 8 Mandau — Lingkungan percobaan
-        </p>
+        <p className="mt-6 text-center text-xs text-white/60">{appearance.footerLine}</p>
         <p className="mx-auto mt-3 max-w-md text-center text-xs leading-relaxed text-white/65">
-          Masuk memerlukan API + MySQL (lihat <span className="text-brand-gold-light/90">env.example</span>, lalu{' '}
-          <span className="text-brand-gold-light/90">npm run dev</span>). Data NISN/NIP dan kontak diproses sesuai
-          kebijakan institusi.
+          {appearance.infoLine}
         </p>
       </div>
     </div>

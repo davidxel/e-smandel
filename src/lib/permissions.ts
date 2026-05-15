@@ -23,6 +23,7 @@ export type AppRouteKey =
   | 'admin_koordinator_kokurikuler'
   | 'admin_tugas'
   | 'admin_audit_poin'
+  | 'admin_login_tampilan'
   | 'mode_piket'
   | 'penebusan_poin'
   | 'bk_manajemen_kasus'
@@ -50,6 +51,7 @@ const ROLE_ROUTE_MATRIX: Record<UserRole, AppRouteKey[]> = {
     'admin_koordinator_kokurikuler',
     'admin_tugas',
     'admin_audit_poin',
+    'admin_login_tampilan',
   ],
   kepsek: [
     'dashboard',
@@ -151,6 +153,7 @@ export function isAdminRouteKey(key: AppRouteKey): boolean {
     key === 'admin_walikelas' ||
     key === 'admin_koordinator_kokurikuler' ||
     key === 'admin_tugas' ||
-    key === 'admin_audit_poin'
+    key === 'admin_audit_poin' ||
+    key === 'admin_login_tampilan'
   )
 }

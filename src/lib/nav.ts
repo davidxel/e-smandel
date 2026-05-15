@@ -9,6 +9,7 @@ import {
   History,
   LayoutDashboard,
   ListChecks,
+  Palette,
   ShieldAlert,
   Users,
   type LucideIcon,
@@ -177,6 +178,13 @@ export const NAV_ITEMS: NavItem[] = [
     path: '/app/admin/audit-poin',
     label: 'Audit Poin',
     icon: History,
+    section: 'administrasi',
+  },
+  {
+    key: 'admin_login_tampilan',
+    path: '/app/admin/tampilan-login',
+    label: 'Tampilan Login',
+    icon: Palette,
     section: 'administrasi',
   },
 ]

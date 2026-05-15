@@ -42,6 +42,11 @@ describe('canAccessRoute', () => {
     expect(canAccessRoute(u, 'laporan')).toBe(true)
   })
 
+  it('guru_mapel tidak mengakses pengaturan tampilan login', () => {
+    const u = baseUser({ role: 'guru_mapel' })
+    expect(canAccessRoute(u, 'admin_login_tampilan')).toBe(false)
+  })
+
   it('siswa hanya tugas_saya dan modul terbatas', () => {
     const u = baseUser({ role: 'siswa' })
     expect(canAccessRoute(u, 'tugas_saya')).toBe(true)

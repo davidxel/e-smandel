@@ -19,6 +19,8 @@ import {
   ensureAuthRowsForUsers,
   pruneAuthUsers,
   getPool,
+  getLoginAppearance,
+  upsertLoginAppearance,
   getCounselingSnapshotsByStudentIds,
   listCounselingLogsForStudent,
   insertCounselingLogRow,
@@ -27,6 +29,7 @@ import {
   upsertSpRecordRow,
 } from './db.ts'
 import { BK_CRITICAL_POINTS_THRESHOLD, SP_THRESHOLDS } from '../src/lib/bkCounselingConstants.ts'
+import { mergeLoginAppearance } from '../src/types/loginAppearance.ts'
 
 const PORT = Number(process.env.PORT ?? 3001)
 const IS_PRODUCTION = process.env.NODE_ENV === 'production'
@@ -137,6 +140,107 @@ app.get('/api/health', async (_req, res) => {
     res.json({ ok: true, database: 'mysql' })
   } catch {
     res.status(503).json({ ok: false, message: 'Basis data tidak terjangkau.' })
+  }
+})
+
+const LoginBackgroundBodyZ = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('default') }),
+  z.object({
+    kind: z.literal('gradient_custom'),
+    from: z.string().max(64),
+    via: z.string().max(64),
+    to: z.string().max(64),
+  }),
+  z.object({
+    kind: z.literal('image'),
+    dataUrl: z
+      .string()
+      .max(4_000_000)
+      .refine((s) => s.startsWith('data:image/'), 'Gambar latar harus data URL gambar.'),
+    overlay: z.number().min(0).max(0.85),
+  }),
+])
+
+const LoginAppearanceBodyZ = z.object({
+  logoDataUrl: z.union([z.string().max(2_500_000), z.null()]),
+  logoAlt: z.string().max(200),
+  title: z.string().max(120),
+  subtitle: z.string().max(240),
+  schoolLine: z.string().max(160),
+  footerLine: z.string().max(400),
+  infoLine: z.string().max(600),
+  background: LoginBackgroundBodyZ,
+})
+
+app.get('/api/public/login-context', async (_req, res) => {
+  try {
+    await getPool().query('SELECT 1')
+    const appearance = await getLoginAppearance()
+    res.json({ databaseOk: true, appearance })
+  } catch (e) {
+    console.error(e)
+    let databaseMessage = 'Basis data tidak tersedia atau tidak terhubung. Periksa MySQL dan variabel lingkungan (.env).'
+    if (e instanceof Error) {
+      const m = e.message.toLowerCase()
+      if (m.includes('econnrefused') || m.includes('connect refused')) {
+        databaseMessage =
+          'Server MySQL menolak koneksi (ECONNREFUSED). Pastikan layanan MySQL berjalan dan host/port benar.'
+      } else if (m.includes('er_bad_db_error') || m.includes('unknown database')) {
+        databaseMessage =
+          'Basis data belum dibuat atau namanya salah. Buat database sesuai MYSQL_DATABASE atau periksa .env.'
+      } else if (m.includes('access denied') || m.includes('er_access_denied')) {
+        databaseMessage = 'Akses MySQL ditolak. Periksa MYSQL_USER dan MYSQL_PASSWORD.'
+      }
+    }
+    res.json({
+      databaseOk: false,
+      databaseMessage,
+      appearance: mergeLoginAppearance(null),
+    })
+  }
+})
+
+app.get('/api/settings/login-appearance', authMiddleware, async (req, res) => {
+  try {
+    const auth = (req as express.Request & { auth: JwtPayload }).auth
+    const { state: ws } = await loadWorkspacePayload()
+    const actor = userById(ws, auth.sub)
+    if (!actor || actor.role !== 'super_admin') {
+      res.status(403).json({ message: 'Hanya Super Admin yang dapat mengubah tampilan login.' })
+      return
+    }
+    const appearance = await getLoginAppearance()
+    res.json({ appearance })
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ message: 'Gagal memuat pengaturan tampilan login.' })
+  }
+})
+
+app.put('/api/settings/login-appearance', authMiddleware, async (req, res) => {
+  try {
+    const auth = (req as express.Request & { auth: JwtPayload }).auth
+    const { state: ws } = await loadWorkspacePayload()
+    const actor = userById(ws, auth.sub)
+    if (!actor || actor.role !== 'super_admin') {
+      res.status(403).json({ message: 'Hanya Super Admin yang dapat mengubah tampilan login.' })
+      return
+    }
+    const parsed = LoginAppearanceBodyZ.safeParse(req.body)
+    if (!parsed.success) {
+      res.status(400).json({ message: 'Data tampilan login tidak valid.' })
+      return
+    }
+    const appearance = mergeLoginAppearance(parsed.data)
+    await upsertLoginAppearance(appearance)
+    void appendAuditLog(actor.id, 'login.appearance.update', {
+      title: appearance.title,
+      backgroundKind: appearance.background.kind,
+    }).catch((err) => console.error('[audit]', err))
+    res.json({ ok: true, appearance })
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ message: 'Gagal menyimpan tampilan login.' })
   }
 })
 

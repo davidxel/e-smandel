@@ -6,6 +6,8 @@ import { buildFreshWorkspaceData } from '../src/lib/workspaceState.ts'
 import { UNCLASSIFIED_CLASS_ID, UNCLASSIFIED_CLASS_NAME } from '../src/lib/classConstants.ts'
 import type { DataState } from '../src/types/dataState.ts'
 import type { User } from '../src/types/schema.ts'
+import type { LoginAppearance } from '../src/types/loginAppearance.ts'
+import { mergeLoginAppearance } from '../src/types/loginAppearance.ts'
 
 function stripWorkspaceForStorage(ws: DataState): DataState {
   return {
@@ -98,6 +100,13 @@ async function migrate(conn: mysql.PoolConnection): Promise<void> {
     'revision',
     '`revision` BIGINT UNSIGNED NOT NULL DEFAULT 1',
   )
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS app_settings (
+      \`key\` VARCHAR(64) NOT NULL PRIMARY KEY,
+      value_json LONGTEXT NOT NULL,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `)
   await conn.query(`
     CREATE TABLE IF NOT EXISTS point_violations (
       id VARCHAR(64) NOT NULL PRIMARY KEY,
@@ -476,6 +485,37 @@ export async function appendAuditLog(
   await p.execute(
     'INSERT INTO audit_log (actor_user_id, action, details) VALUES (?, ?, ?)',
     [actorUserId, action, payload],
+  )
+}
+
+const LOGIN_APPEARANCE_KEY = 'login_appearance'
+
+export async function getLoginAppearance(): Promise<LoginAppearance> {
+  const p = getPool()
+  const [rows] = await p.query<RowDataPacket[]>(
+    'SELECT value_json FROM app_settings WHERE `key` = ? LIMIT 1',
+    [LOGIN_APPEARANCE_KEY],
+  )
+  const raw = rows[0]?.value_json
+  if (raw == null || raw === '') return mergeLoginAppearance(null)
+  const str = Buffer.isBuffer(raw)
+    ? raw.toString('utf8')
+    : typeof raw === 'string'
+      ? raw
+      : JSON.stringify(raw)
+  try {
+    return mergeLoginAppearance(JSON.parse(str) as unknown)
+  } catch {
+    return mergeLoginAppearance(null)
+  }
+}
+
+export async function upsertLoginAppearance(appearance: LoginAppearance): Promise<void> {
+  const p = getPool()
+  const json = JSON.stringify(appearance)
+  await p.execute(
+    'INSERT INTO app_settings (`key`, value_json) VALUES (?, ?) ON DUPLICATE KEY UPDATE value_json = VALUES(value_json)',
+    [LOGIN_APPEARANCE_KEY, json],
   )
 }
 

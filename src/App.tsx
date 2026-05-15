@@ -28,6 +28,7 @@ import { ToastHost } from './components/ui/ToastHost'
 import { useUiStore } from './store/uiStore'
 import { AdminTugasPage } from './pages/admin/AdminTugasPage'
 import { AdminAuditPoinPage } from './pages/admin/AdminAuditPoinPage'
+import { AdminLoginTampilanPage } from './pages/admin/AdminLoginTampilanPage'
 import { BkKonselingPage } from './pages/BkKonselingPage'
 
 function ProtectedLayout() {
@@ -256,6 +257,14 @@ export default function App() {
             element={
               <RequireModule routeKey="admin_audit_poin">
                 <AdminAuditPoinPage />
+              </RequireModule>
+            }
+          />
+          <Route
+            path="admin/tampilan-login"
+            element={
+              <RequireModule routeKey="admin_login_tampilan">
+                <AdminLoginTampilanPage />
               </RequireModule>
             }
           />
